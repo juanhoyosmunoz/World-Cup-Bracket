@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="6" fill="#FFFFFF"/>
+  <!-- yellow signal chevron -->
+  <path d="M22 4H10l6 7.1L22 4z" fill="#FFD600"/>
+  <!-- "a" stroke -->
+  <path d="M21.6 28L20 23.4H12L10.4 28H5.6L14.2 9h3.6L26.4 28h-4.8zm-3.2-8.3L16 12.4l-2.4 7.3h4.8z" fill="#333333"/>
+</svg>
