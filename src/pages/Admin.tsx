@@ -233,7 +233,7 @@ function UsersTab() {
 
 function ConfigTab() {
   const [cfg, setCfg] = useState<AppConfig | null>(null);
-  const [form, setForm] = useState({ favorite: "", knockout: "", start: "", end: "", phase: "PRE" });
+  const [form, setForm] = useState({ favorite: "", knockout: "", start: "", end: "", phase: "PRE" as AppConfig["phase"] });
 
   useEffect(() => onSnapshot(doc(db, "appConfig", "main"), (s) => {
     const d = s.exists() ? (s.data() as AppConfig) : null;
