@@ -125,6 +125,7 @@ export default function MyPicks() {
                       key={f.id}
                       fixture={f}
                       teams={teams}
+                      hideLive
                       myPrediction={predByFixture[f.id]}
                       result={results[f.id]}
                       favoriteTeamId={favorite?.teamId ?? null}

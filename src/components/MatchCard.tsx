@@ -16,11 +16,15 @@ interface Props {
       the participants-picks modal. Locked-only because Firestore rules
       only return other users' predictions after the fixture locks. */
   onViewAllPicks?: () => void;
+  /** Suppress the LIVE badge so the card keeps showing the lock-time
+      countdown / Locked chip even while the match is in progress. Used on
+      MyPicks where the pick-close time is what matters, not match state. */
+  hideLive?: boolean;
 }
 
-export default function MatchCard({ fixture, teams, myPrediction, result, favoriteTeamId, onSave, onViewAllPicks }: Props) {
+export default function MatchCard({ fixture, teams, myPrediction, result, favoriteTeamId, onSave, onViewAllPicks, hideLive }: Props) {
   const locked = fixtureLocked(fixture);
-  const isLive = fixture.status === "LIVE";
+  const isLive = !hideLive && fixture.status === "LIVE";
 
   // Tick the live minute counter while the match is in progress. 30s is
   // tight enough to feel live without wasting renders.
