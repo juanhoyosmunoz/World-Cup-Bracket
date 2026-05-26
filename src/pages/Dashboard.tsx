@@ -45,14 +45,14 @@ export default function Dashboard() {
     () =>
       fixtures
         .filter((f) => f.stage === "GROUP" && !fixtureLocked(f))
-        .sort((a, b) => (a.kickoff as any).toMillis() - (b.kickoff as any).toMillis()),
+        .sort((a, b) => new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime()),
     [fixtures]
   );
   const liveMatches = useMemo(
     () =>
       fixtures
         .filter((f) => f.status === "LIVE")
-        .sort((a, b) => (a.kickoff as any).toMillis() - (b.kickoff as any).toMillis()),
+        .sort((a, b) => new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime()),
     [fixtures]
   );
 
@@ -60,7 +60,7 @@ export default function Dashboard() {
     () =>
       fixtures
         .filter((f) => f.status !== "LIVE" && !!results[f.id])
-        .sort((a, b) => (b.kickoff as any).toMillis() - (a.kickoff as any).toMillis())
+        .sort((a, b) => new Date(b.kickoff).getTime() - new Date(a.kickoff).getTime())
         .slice(0, 4),
     [fixtures, results]
   );
@@ -105,7 +105,7 @@ export default function Dashboard() {
               value={koLocked ? "Locked" : "Open"}
               cta={
                 !koLocked && cfg?.knockoutLockAt && (
-                  <Countdown to={cfg.knockoutLockAt as any} className="text-xs text-ink-500" />
+                  <Countdown to={cfg.knockoutLockAt} className="text-xs text-ink-500" />
                 )
               }
             />

@@ -1,20 +1,12 @@
-// Thin typed wrappers around Firestore reads/writes the UI uses repeatedly.
+// REST API data layer — replaces the former Firestore SDK.
 //
-// In DEMO_MODE all of these route to the in-memory store in `./demo.ts`,
-// so the app runs end-to-end with no Firebase backend.
+// All `watch*` functions keep the same signature: they accept a callback,
+// fetch once immediately, then poll at a fixed interval. They return an
+// unsubscribe function (same as the old onSnapshot pattern).
+//
+// In DEMO_MODE everything routes to the in-memory store in `./demo.ts`.
 
-import {
-  collection,
-  doc,
-  getDoc,
-  onSnapshot,
-  orderBy,
-  query,
-  setDoc,
-  where,
-  type Unsubscribe,
-} from "firebase/firestore";
-import { db } from "../firebase";
+import { apiFetch } from "../firebase";
 import type {
   AppConfig,
   FavoritePick,
@@ -25,7 +17,6 @@ import type {
   MatchResult,
   Team,
 } from "../types";
-import { serverTimestamp } from "firebase/firestore";
 import {
   DEMO_MODE,
   buses,
@@ -34,111 +25,141 @@ import {
   demoSavePrediction,
 } from "./demo";
 
+type Unsubscribe = () => void;
+
+const POLL_MS = 15_000;
+
+function poll<T>(
+  path: string,
+  cb: (data: T) => void,
+  interval = POLL_MS
+): Unsubscribe {
+  let active = true;
+  const doFetch = () =>
+    apiFetch<T>(path)
+      .then((d) => {
+        if (active) cb(d);
+      })
+      .catch((e) => console.warn(`poll ${path}:`, e));
+  doFetch();
+  const id = setInterval(doFetch, interval);
+  return () => {
+    active = false;
+    clearInterval(id);
+  };
+}
+
 export function watchAppConfig(cb: (cfg: AppConfig | null) => void): Unsubscribe {
   if (DEMO_MODE) return buses.appConfig.subscribe(cb);
-  return onSnapshot(doc(db, "appConfig", "main"), (snap) => {
-    cb(snap.exists() ? (snap.data() as AppConfig) : null);
-  });
+  return poll<AppConfig | null>("/api/app-config", cb);
 }
 
 export function watchTeams(cb: (teams: Team[]) => void): Unsubscribe {
   if (DEMO_MODE) return buses.teams.subscribe(cb);
-  return onSnapshot(collection(db, "teams"), (snap) => {
-    cb(snap.docs.map((d) => d.data() as Team));
-  });
+  return poll<Team[]>("/api/teams", cb);
 }
 
 export function watchFixtures(cb: (fx: Fixture[]) => void): Unsubscribe {
   if (DEMO_MODE) return buses.fixtures.subscribe(cb);
-  const q = query(collection(db, "fixtures"), orderBy("kickoff", "asc"));
-  return onSnapshot(q, (snap) =>
-    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })))
-  );
+  return poll<Fixture[]>("/api/fixtures", cb);
 }
 
 export function watchResults(cb: (res: Record<string, MatchResult>) => void): Unsubscribe {
   if (DEMO_MODE) return buses.results.subscribe(cb);
-  return onSnapshot(collection(db, "results"), (snap) => {
-    const map: Record<string, MatchResult> = {};
-    snap.docs.forEach((d) => (map[d.id] = d.data() as MatchResult));
-    cb(map);
-  });
+  return poll<Record<string, MatchResult>>("/api/results", cb);
 }
 
 export function watchMyPredictions(
   uid: string,
   cb: (p: GroupPrediction[]) => void
 ): Unsubscribe {
-  if (DEMO_MODE) return buses.allPredictions.subscribe((all) => cb(all.filter((p) => p.uid === uid)));
-  const q = query(collection(db, "predictions"), where("uid", "==", uid));
-  return onSnapshot(q, (snap) =>
-    cb(snap.docs.map((d) => d.data() as GroupPrediction))
-  );
+  if (DEMO_MODE)
+    return buses.allPredictions.subscribe((all) =>
+      cb(all.filter((p) => p.uid === uid))
+    );
+  return poll<GroupPrediction[]>("/api/predictions/me", cb);
 }
 
-export function watchMyFavorite(uid: string, cb: (f: FavoritePick | null) => void): Unsubscribe {
+export function watchMyFavorite(
+  uid: string,
+  cb: (f: FavoritePick | null) => void
+): Unsubscribe {
   if (DEMO_MODE) return buses.favorite.subscribe(cb);
-  return onSnapshot(doc(db, "favorites", uid), (snap) => {
-    cb(snap.exists() ? (snap.data() as FavoritePick) : null);
-  });
+  return poll<FavoritePick | null>("/api/favorites/me", cb);
 }
 
-export function watchMyBracket(uid: string, cb: (b: KnockoutBracket | null) => void): Unsubscribe {
+export function watchMyBracket(
+  uid: string,
+  cb: (b: KnockoutBracket | null) => void
+): Unsubscribe {
   if (DEMO_MODE) return buses.bracket.subscribe(cb);
-  return onSnapshot(doc(db, "knockoutBrackets", uid), (snap) => {
-    cb(snap.exists() ? (snap.data() as KnockoutBracket) : null);
-  });
+  return poll<KnockoutBracket | null>("/api/brackets/me", cb);
 }
 
-export function watchLeaderboard(cb: (l: LeaderboardEntry[]) => void): Unsubscribe {
+export function watchLeaderboard(
+  cb: (l: LeaderboardEntry[]) => void
+): Unsubscribe {
   if (DEMO_MODE) return buses.leaderboard.subscribe(cb);
-  const q = query(collection(db, "leaderboard"), orderBy("totalPoints", "desc"));
-  return onSnapshot(q, (snap) =>
-    cb(snap.docs.map((d) => d.data() as LeaderboardEntry))
-  );
+  return poll<LeaderboardEntry[]>("/api/leaderboard", cb);
 }
 
 export async function savePrediction(p: GroupPrediction) {
-  if (DEMO_MODE) { demoSavePrediction(p); return; }
-  const id = `${p.uid}_${p.fixtureId}`;
-  await setDoc(
-    doc(db, "predictions", id),
-    { ...p, updatedAt: serverTimestamp() },
-    { merge: true }
-  );
+  if (DEMO_MODE) {
+    demoSavePrediction(p);
+    return;
+  }
+  await apiFetch(`/api/predictions/${p.fixtureId}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      fixtureId: p.fixtureId,
+      pickedOutcome: p.pickedOutcome,
+      homeGoals: p.homeGoals ?? null,
+      awayGoals: p.awayGoals ?? null,
+    }),
+  });
 }
 
 export async function saveFavorite(uid: string, teamId: string) {
-  if (DEMO_MODE) { demoSaveFavorite(uid, teamId); return; }
-  await setDoc(
-    doc(db, "favorites", uid),
-    { uid, teamId, setAt: serverTimestamp() },
-    { merge: true }
-  );
+  if (DEMO_MODE) {
+    demoSaveFavorite(uid, teamId);
+    return;
+  }
+  await apiFetch("/api/favorites", {
+    method: "PUT",
+    body: JSON.stringify({ teamId }),
+  });
 }
 
 export async function saveBracket(uid: string, b: Partial<KnockoutBracket>) {
-  if (DEMO_MODE) { demoSaveBracket(uid, b); return; }
-  await setDoc(
-    doc(db, "knockoutBrackets", uid),
-    { uid, ...b, updatedAt: serverTimestamp() },
-    { merge: true }
-  );
+  if (DEMO_MODE) {
+    demoSaveBracket(uid, b);
+    return;
+  }
+  await apiFetch("/api/brackets", {
+    method: "PUT",
+    body: JSON.stringify({ picks: b.picks ?? {} }),
+  });
 }
 
 export function watchPredictionsForFixture(
   fixtureId: string,
   cb: (preds: GroupPrediction[]) => void
 ): Unsubscribe {
-  if (DEMO_MODE) return buses.allPredictions.subscribe((all) => cb(all.filter((p) => p.fixtureId === fixtureId)));
-  const q = query(collection(db, "predictions"), where("fixtureId", "==", fixtureId));
-  return onSnapshot(q, (snap) =>
-    cb(snap.docs.map((d) => d.data() as GroupPrediction))
+  if (DEMO_MODE)
+    return buses.allPredictions.subscribe((all) =>
+      cb(all.filter((p) => p.fixtureId === fixtureId))
+    );
+  return poll<GroupPrediction[]>(
+    `/api/predictions/fixture/${fixtureId}`,
+    cb
   );
 }
 
 export async function getOnce<T>(path: string): Promise<T | null> {
   if (DEMO_MODE) return null;
-  const s = await getDoc(doc(db, path));
-  return s.exists() ? (s.data() as T) : null;
+  try {
+    return await apiFetch<T>(`/api/${path}`);
+  } catch {
+    return null;
+  }
 }

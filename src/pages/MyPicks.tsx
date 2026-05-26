@@ -56,8 +56,8 @@ export default function MyPicks() {
   const byDay = useMemo(() => {
     const m = new Map<string, { label: string; sortKey: number; fixtures: Fixture[] }>();
     for (const f of groupFixtures) {
-      const d = (f.kickoff as any).toDate?.() as Date | undefined;
-      if (!d) continue;
+      const d = f.kickoff ? new Date(f.kickoff) : undefined;
+      if (!d || isNaN(d.getTime())) continue;
       const key = d.toLocaleDateString(undefined, { year: "numeric", month: "2-digit", day: "2-digit" });
       const label = d.toLocaleDateString(undefined, {
         weekday: "long",
@@ -73,7 +73,7 @@ export default function MyPicks() {
     // Inside each day, keep chronological by kickoff
     for (const v of m.values()) {
       v.fixtures.sort(
-        (a, b) => (a.kickoff as any).toMillis() - (b.kickoff as any).toMillis()
+        (a, b) => new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime()
       );
     }
     return [...m.values()].sort((a, b) => a.sortKey - b.sortKey);
@@ -137,7 +137,7 @@ export default function MyPicks() {
                           pickedOutcome: outcome,
                           homeGoals,
                           awayGoals,
-                          updatedAt: undefined as any,
+                          updatedAt: "",
                         });
                       }}
                       onViewAllPicks={() => setPicksFixtureId(f.id)}
@@ -160,7 +160,7 @@ export default function MyPicks() {
             if (!user) return;
             await saveBracket(user.uid, {
               picks,
-              submittedAt: submit ? (new Date() as any) : bracket?.submittedAt,
+              submittedAt: submit ? new Date().toISOString() : bracket?.submittedAt,
             });
           }}
         />
@@ -224,7 +224,7 @@ function FavoriteTab({
             <span className="chip-red">Favorite locked</span>
           ) : (
             cfg?.favoriteLockAt && (
-              <Countdown to={cfg.favoriteLockAt as any} className="chip-yellow" />
+              <Countdown to={cfg.favoriteLockAt} className="chip-yellow" />
             )
           )}
         </div>
@@ -381,7 +381,7 @@ function KnockoutTab({
             <span className="chip-red">Bracket locked</span>
           ) : (
             cfg?.knockoutLockAt && (
-              <Countdown to={cfg.knockoutLockAt as any} className="chip-yellow" />
+              <Countdown to={cfg.knockoutLockAt} className="chip-yellow" />
             )
           )}
           {!locked && (

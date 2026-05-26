@@ -1,9 +1,8 @@
-// DEMO MODE — runs the app without any Firebase backend so the UI can be
-// previewed locally with `npm run dev` and zero setup. Enabled when
-// `VITE_DEMO_MODE=true` in .env. All Firestore reads/writes are routed
-// through this module's in-memory store.
+// DEMO MODE — runs the app without any backend so the UI can be previewed
+// locally with `npm run dev` and zero setup. Enabled when
+// `VITE_DEMO_MODE=true` in .env. All data reads/writes are routed through
+// this module's in-memory store.
 
-import type { Timestamp } from "firebase/firestore";
 import type {
   AppConfig,
   FavoritePick,
@@ -27,22 +26,14 @@ class Bus<T> {
   subscribe(cb: Listener<T>) {
     this.listeners.add(cb);
     cb(this.getter());
-    return () => this.listeners.delete(cb);
+    return () => { this.listeners.delete(cb); };
   }
   notify() { for (const l of this.listeners) l(this.getter()); }
 }
 
-// Fake Timestamp shim that exposes toDate()/toMillis().
-function ts(date: Date): Timestamp {
-  return {
-    toDate: () => date,
-    toMillis: () => date.getTime(),
-    seconds: Math.floor(date.getTime() / 1000),
-    nanoseconds: (date.getTime() % 1000) * 1e6,
-  } as unknown as Timestamp;
+function iso(date: Date): string {
+  return date.toISOString();
 }
-
-const now = new Date("2026-06-08T12:00:00Z"); // a few days before tournament
 
 // --- Mock user --------------------------------------------------------------
 
@@ -56,8 +47,6 @@ export const DEMO_USER = {
 
 // --- Teams ------------------------------------------------------------------
 
-// Real 2026 FIFA World Cup group draw (December 2025).
-// Source: en.wikipedia.org/wiki/2026_FIFA_World_Cup.
 const SCO_FLAG = "🏴\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}";
 const ENG_FLAG = "🏴\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}";
 
@@ -124,7 +113,7 @@ const TEAMS: Team[] = [
   { id: "PAN", name: "Panama",               shortName: "PAN", flag: "🇵🇦", group: "L" },
 ];
 
-// --- Fixtures (6 group matches × 12 groups = 72; staggered every 3h) --------
+// --- Fixtures ---------------------------------------------------------------
 
 function roundRobin(teams: string[]): [string, string][] {
   const [a, b, c, d] = teams;
@@ -149,8 +138,8 @@ const FIXTURES: Fixture[] = (() => {
         group: g,
         homeTeamId: h,
         awayTeamId: a,
-        kickoff: ts(new Date(kickoffMs)),
-        lockAt: ts(new Date(kickoffMs - 60 * 60_000)),
+        kickoff: iso(new Date(kickoffMs)),
+        lockAt: iso(new Date(kickoffMs - 60 * 60_000)),
         status: "SCHEDULED",
       });
     }
@@ -159,16 +148,12 @@ const FIXTURES: Fixture[] = (() => {
   return out;
 })();
 
-// R32 placeholder fixtures with bracketSlot R32-1..R32-16 mapped to top-2
-// finishers using a plausible pairing so the bracket UI has candidates.
 const R32_FIXTURES: Fixture[] = (() => {
-  // Use first two teams of each group as the "qualifiers" for demo purposes.
   const byGroup: Record<string, string[]> = {};
   for (const t of TEAMS) (byGroup[t.group!] ??= []).push(t.id);
   const groups = Object.keys(byGroup).sort();
   const winners = groups.map((g) => byGroup[g][0]);
   const runners = groups.map((g) => byGroup[g][1]);
-  // 24 qualifiers + 8 best 3rds (use 3rd team in each group for demo).
   const thirds = groups.slice(0, 8).map((g) => byGroup[g][2]);
   const allKnockoutTeams = [...winners, ...runners, ...thirds];
 
@@ -183,8 +168,8 @@ const R32_FIXTURES: Fixture[] = (() => {
       bracketSlot: `R32-${i + 1}`,
       homeTeamId: home,
       awayTeamId: away,
-      kickoff: ts(new Date(kickoff)),
-      lockAt: ts(new Date(kickoff - 10 * 60_000)),
+      kickoff: iso(new Date(kickoff)),
+      lockAt: iso(new Date(kickoff - 10 * 60_000)),
       status: "SCHEDULED" as const,
     };
   });
@@ -192,49 +177,43 @@ const R32_FIXTURES: Fixture[] = (() => {
 
 const ALL_FIXTURES: Fixture[] = [...FIXTURES, ...R32_FIXTURES];
 
-// Demo: simulate several simultaneous LIVE matches so the user can preview
-// the live-now section without waiting for June 11. Each tuple is
-// [fixtureId, minutesElapsedAtRealNow].
 (function makeFixturesLive() {
   const liveSeed: [string, number][] = [
-    ["GRP-F-1", 37],   // 🇳🇱 NED vs 🇯🇵 JPN  · 1st half
-    ["GRP-G-1", 14],   // 🇧🇪 BEL vs 🇪🇬 EGY  · early
-    ["GRP-H-1", 67],   // 🇪🇸 ESP vs 🇨🇻 CPV  · 2nd half
+    ["GRP-F-1", 37],
+    ["GRP-G-1", 14],
+    ["GRP-H-1", 67],
   ];
   for (const [id, minutes] of liveSeed) {
     const target = ALL_FIXTURES.find((f) => f.id === id);
     if (!target) continue;
     const kickoffMs = Date.now() - minutes * 60_000;
     target.status = "LIVE";
-    target.kickoff = ts(new Date(kickoffMs));
-    target.lockAt = ts(new Date(kickoffMs - 60 * 60_000));
+    target.kickoff = iso(new Date(kickoffMs));
+    target.lockAt = iso(new Date(kickoffMs - 60 * 60_000));
   }
 })();
 
 // --- AppConfig --------------------------------------------------------------
 
 const APP_CONFIG: AppConfig = {
-  favoriteLockAt: ts(new Date("2026-06-11T19:00:00Z")),
-  knockoutLockAt: ts(new Date("2026-06-29T19:00:00Z")),
-  tournamentStartAt: ts(new Date("2026-06-11T20:00:00Z")),
-  tournamentEndAt: ts(new Date("2026-07-19T22:00:00Z")),
+  favoriteLockAt: iso(new Date("2026-06-11T19:00:00Z")),
+  knockoutLockAt: iso(new Date("2026-06-29T19:00:00Z")),
+  tournamentStartAt: iso(new Date("2026-06-11T20:00:00Z")),
+  tournamentEndAt: iso(new Date("2026-07-19T22:00:00Z")),
   phase: "PRE",
 };
 
 // --- Mutable user state -----------------------------------------------------
 
-// All predictions from every (mock) participant, including the demo user.
-// The "See all picks" modal queries this list when a match is locked.
 type DemoPrediction = GroupPrediction & { _demoName?: string; _demoPhoto?: string };
 let allPredictions: DemoPrediction[] = [];
 let favorite: FavoritePick | null = {
   uid: DEMO_USER.uid,
   teamId: "ARG",
-  setAt: ts(new Date()),
+  setAt: iso(new Date()),
 };
 let bracket: KnockoutBracket | null = null;
-// Pre-seeded results for the first ~12 group matches so the Groups,
-// Leaderboard, and Dashboard pages show something interesting in demo mode.
+
 function mkResult(
   fixtureId: string,
   fixtures: Fixture[],
@@ -254,7 +233,7 @@ function mkResult(
     homeGoals,
     awayGoals,
     outcome,
-    finalizedAt: ts(new Date()),
+    finalizedAt: iso(new Date()),
     source: "API",
   };
 }
@@ -262,14 +241,11 @@ function mkResult(
 const results: Record<string, MatchResult> = (() => {
   const m: Record<string, MatchResult> = {};
   const seed: [string, number, number][] = [
-    // Group A — all 6 matches
     ["GRP-A-1", 2, 1], ["GRP-A-2", 0, 0],
     ["GRP-A-3", 3, 1], ["GRP-A-4", 1, 2],
     ["GRP-A-5", 2, 0], ["GRP-A-6", 1, 1],
-    // Group B — 4 of 6 matches
     ["GRP-B-1", 3, 0], ["GRP-B-2", 1, 1],
     ["GRP-B-3", 2, 0], ["GRP-B-4", 2, 2],
-    // First match in groups C, D, E
     ["GRP-C-1", 2, 1],
     ["GRP-D-1", 1, 0],
     ["GRP-E-1", 3, 2],
@@ -278,7 +254,6 @@ const results: Record<string, MatchResult> = (() => {
     const r = mkResult(id, ALL_FIXTURES, h, a);
     if (r) m[id] = r;
   }
-  // Mark the corresponding fixtures FINISHED for nicer display.
   for (const id of Object.keys(m)) {
     const fx = ALL_FIXTURES.find((f) => f.id === id);
     if (fx) fx.status = "FINISHED";
@@ -286,10 +261,6 @@ const results: Record<string, MatchResult> = (() => {
   return m;
 })();
 
-// Seed predictions from each mock participant for every completed match,
-// so the "See all picks" modal has real data to render. Each mock user has
-// a per-match (outcome, homeGoals, awayGoals) tuple. Outcomes are encoded
-// as "H" (home), "A" (away), "D" (draw), then resolved to team ids below.
 const MOCK_USERS: { uid: string; name: string; photo?: string }[] = [
   { uid: "u-1", name: "Lauren M.",  photo: "https://api.dicebear.com/9.x/initials/svg?seed=LM&backgroundColor=FFD600" },
   { uid: "u-2", name: "Juan R.",    photo: "https://api.dicebear.com/9.x/initials/svg?seed=JR&backgroundColor=FFE14D" },
@@ -301,7 +272,6 @@ const MOCK_USERS: { uid: string; name: string; photo?: string }[] = [
 
 type Pick = ["H" | "A" | "D", number | null, number | null];
 const PICK_TABLE: Record<string, Pick[]> = {
-  // per-fixture row: order matches MOCK_USERS (u-1..u-6) then DEMO_USER
   "GRP-A-1": [["H", 2, 1], ["H", 1, 0], ["D", 1, 1], ["H", 2, 0], ["A", 1, 2], ["H", 3, 1], ["H", 2, 1]],
   "GRP-A-2": [["D", 1, 1], ["D", 0, 0], ["H", 2, 1], ["D", null, null], ["A", 0, 1], ["D", 1, 1], ["H", 2, 1]],
   "GRP-A-3": [["H", 2, 1], ["H", 3, 0], ["H", 3, 1], ["A", 1, 2], ["H", 2, 0], ["H", 2, 1], ["H", 3, 1]],
@@ -338,7 +308,7 @@ const PICK_TABLE: Record<string, Pick[]> = {
         pickedOutcome: outcome,
         homeGoals: hg,
         awayGoals: ag,
-        updatedAt: ts(new Date()),
+        updatedAt: iso(new Date()),
         _demoName: u.name,
         _demoPhoto: u.photo,
       } as DemoPrediction);
@@ -346,16 +316,17 @@ const PICK_TABLE: Record<string, Pick[]> = {
   }
 })();
 
-// --- Mock leaderboard --------------------------------------------------------
+// --- Mock leaderboard -------------------------------------------------------
 
+const now = iso(new Date());
 const LEADERBOARD: LeaderboardEntry[] = [
-  { uid: "u-1",       displayName: "Lauren M.",       totalPoints: 64, groupPoints: 24, knockoutPoints: 40, favoriteBonusPoints: 12, exactScoreBonusPoints: 6, correctOutcomes: 8, correctExactScores: 3, finalScoreDelta: null, previousRank: 2, rank: 1, updatedAt: ts(new Date()) },
-  { uid: "u-2",       displayName: "Juan R.",         totalPoints: 58, groupPoints: 28, knockoutPoints: 30, favoriteBonusPoints: 6,  exactScoreBonusPoints: 4, correctOutcomes: 9, correctExactScores: 2, finalScoreDelta: null, previousRank: 1, rank: 2, updatedAt: ts(new Date()) },
-  { uid: DEMO_USER.uid,displayName: DEMO_USER.displayName, photoURL: DEMO_USER.photoURL, totalPoints: 53, groupPoints: 23, knockoutPoints: 30, favoriteBonusPoints: 10, exactScoreBonusPoints: 4, correctOutcomes: 7, correctExactScores: 2, finalScoreDelta: null, previousRank: 5, rank: 3, updatedAt: ts(new Date()) },
-  { uid: "u-3",       displayName: "Diego A.",        totalPoints: 47, groupPoints: 17, knockoutPoints: 30, favoriteBonusPoints: 0,  exactScoreBonusPoints: 2, correctOutcomes: 6, correctExactScores: 1, finalScoreDelta: null, previousRank: 3, rank: 4, updatedAt: ts(new Date()) },
-  { uid: "u-4",       displayName: "Sofía L.",        totalPoints: 41, groupPoints: 21, knockoutPoints: 20, favoriteBonusPoints: 4,  exactScoreBonusPoints: 2, correctOutcomes: 6, correctExactScores: 1, finalScoreDelta: null, previousRank: 4, rank: 5, updatedAt: ts(new Date()) },
-  { uid: "u-5",       displayName: "Marco T.",        totalPoints: 33, groupPoints: 18, knockoutPoints: 15, favoriteBonusPoints: 2,  exactScoreBonusPoints: 0, correctOutcomes: 5, correctExactScores: 0, finalScoreDelta: null, previousRank: 6, rank: 6, updatedAt: ts(new Date()) },
-  { uid: "u-6",       displayName: "Anita W.",        totalPoints: 28, groupPoints: 13, knockoutPoints: 15, favoriteBonusPoints: 0,  exactScoreBonusPoints: 0, correctOutcomes: 4, correctExactScores: 0, finalScoreDelta: null, previousRank: 7, rank: 7, updatedAt: ts(new Date()) },
+  { uid: "u-1",       displayName: "Lauren M.",       totalPoints: 64, groupPoints: 24, knockoutPoints: 40, favoriteBonusPoints: 12, exactScoreBonusPoints: 6, correctOutcomes: 8, correctExactScores: 3, finalScoreDelta: null, previousRank: 2, rank: 1, updatedAt: now },
+  { uid: "u-2",       displayName: "Juan R.",         totalPoints: 58, groupPoints: 28, knockoutPoints: 30, favoriteBonusPoints: 6,  exactScoreBonusPoints: 4, correctOutcomes: 9, correctExactScores: 2, finalScoreDelta: null, previousRank: 1, rank: 2, updatedAt: now },
+  { uid: DEMO_USER.uid,displayName: DEMO_USER.displayName, photoURL: DEMO_USER.photoURL, totalPoints: 53, groupPoints: 23, knockoutPoints: 30, favoriteBonusPoints: 10, exactScoreBonusPoints: 4, correctOutcomes: 7, correctExactScores: 2, finalScoreDelta: null, previousRank: 5, rank: 3, updatedAt: now },
+  { uid: "u-3",       displayName: "Diego A.",        totalPoints: 47, groupPoints: 17, knockoutPoints: 30, favoriteBonusPoints: 0,  exactScoreBonusPoints: 2, correctOutcomes: 6, correctExactScores: 1, finalScoreDelta: null, previousRank: 3, rank: 4, updatedAt: now },
+  { uid: "u-4",       displayName: "Sofía L.",        totalPoints: 41, groupPoints: 21, knockoutPoints: 20, favoriteBonusPoints: 4,  exactScoreBonusPoints: 2, correctOutcomes: 6, correctExactScores: 1, finalScoreDelta: null, previousRank: 4, rank: 5, updatedAt: now },
+  { uid: "u-5",       displayName: "Marco T.",        totalPoints: 33, groupPoints: 18, knockoutPoints: 15, favoriteBonusPoints: 2,  exactScoreBonusPoints: 0, correctOutcomes: 5, correctExactScores: 0, finalScoreDelta: null, previousRank: 6, rank: 6, updatedAt: now },
+  { uid: "u-6",       displayName: "Anita W.",        totalPoints: 28, groupPoints: 13, knockoutPoints: 15, favoriteBonusPoints: 0,  exactScoreBonusPoints: 0, correctOutcomes: 4, correctExactScores: 0, finalScoreDelta: null, previousRank: 7, rank: 7, updatedAt: now },
 ];
 
 // --- Bus instances ----------------------------------------------------------
@@ -371,18 +342,18 @@ export const buses = {
   leaderboard: new Bus<LeaderboardEntry[]>(() => LEADERBOARD),
 };
 
-// --- Mutators called from firestore.ts demo branches ------------------------
+// --- Mutators ---------------------------------------------------------------
 
 export function demoSavePrediction(p: GroupPrediction) {
   const idx = allPredictions.findIndex((x) => x.fixtureId === p.fixtureId && x.uid === p.uid);
-  const next: GroupPrediction = { ...p, updatedAt: ts(new Date()) };
+  const next: GroupPrediction = { ...p, updatedAt: iso(new Date()) };
   if (idx >= 0) allPredictions[idx] = next;
   else allPredictions.push(next);
   buses.allPredictions.notify();
 }
 
 export function demoSaveFavorite(uid: string, teamId: string) {
-  favorite = { uid, teamId, setAt: ts(new Date()) };
+  favorite = { uid, teamId, setAt: iso(new Date()) };
   buses.favorite.notify();
 }
 
@@ -391,7 +362,7 @@ export function demoSaveBracket(uid: string, b: Partial<KnockoutBracket>) {
     uid,
     picks: { ...(bracket?.picks ?? {}), ...(b.picks ?? {}) },
     submittedAt: b.submittedAt ?? bracket?.submittedAt,
-    updatedAt: ts(new Date()),
+    updatedAt: iso(new Date()),
   };
   buses.bracket.notify();
 }
@@ -401,5 +372,5 @@ export const DEMO_PROFILE: UserProfile = {
   email: DEMO_USER.email,
   displayName: DEMO_USER.displayName,
   photoURL: DEMO_USER.photoURL,
-  createdAt: ts(new Date()),
+  createdAt: iso(new Date()),
 };

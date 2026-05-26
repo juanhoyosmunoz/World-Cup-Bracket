@@ -25,7 +25,6 @@
 // -----------------------------------------------------------------------------
 
 import type {
-  BracketPick,
   FavoritePick,
   Fixture,
   GroupPrediction,

@@ -1,34 +1,29 @@
-// -----------------------------------------------------------------------------
-// LOCKING — UTC-correct lock evaluation, mirrored by Firestore security rules.
-// All times are stored as Firestore Timestamps in UTC; we render in the user's
-// local time at the UI layer.
+// LOCKING — UTC-correct lock evaluation.
+//
+// All times are stored as ISO strings in UTC; we render in the user's local
+// time at the UI layer.
 //
 //   - Group fixture lock: kickoff - 1 hour  (also locks if status != SCHEDULED)
 //   - Knockout bracket lock: shared appConfig.knockoutLockAt
 //   - Favorite team lock:    shared appConfig.favoriteLockAt
-//
-// Important: the canonical lock is the server-side rule. Client display is
-// optimistic; an attempted write after lock will be rejected by Firestore.
-// -----------------------------------------------------------------------------
 
-import type { Timestamp } from "firebase/firestore";
 import type { AppConfig, Fixture } from "../types";
 
 export const LOCK_LEAD_MINUTES = 60;
 
-function tsToDate(ts: Timestamp | Date | undefined | null): Date | null {
+function toDate(ts: string | Date | undefined | null): Date | null {
   if (!ts) return null;
   if (ts instanceof Date) return ts;
-  if (typeof (ts as any).toDate === "function") return (ts as Timestamp).toDate();
+  if (typeof ts === "string") return new Date(ts);
+  if (typeof (ts as any).toDate === "function") return (ts as any).toDate();
   return null;
 }
 
 export function fixtureLocked(fx: Fixture, now: Date = new Date()): boolean {
   if (fx.status !== "SCHEDULED") return true;
-  const lock = tsToDate(fx.lockAt);
+  const lock = toDate(fx.lockAt);
   if (!lock) {
-    // Defensive: compute from kickoff if lockAt missing.
-    const k = tsToDate(fx.kickoff);
+    const k = toDate(fx.kickoff);
     if (!k) return false;
     return now.getTime() >= k.getTime() - LOCK_LEAD_MINUTES * 60_000;
   }
@@ -37,28 +32,23 @@ export function fixtureLocked(fx: Fixture, now: Date = new Date()): boolean {
 
 export function knockoutLocked(cfg: AppConfig | null, now: Date = new Date()): boolean {
   if (!cfg) return false;
-  const t = tsToDate(cfg.knockoutLockAt);
+  const t = toDate(cfg.knockoutLockAt);
   return t ? now.getTime() >= t.getTime() : false;
 }
 
 export function favoriteLocked(cfg: AppConfig | null, now: Date = new Date()): boolean {
   if (!cfg) return false;
-  const t = tsToDate(cfg.favoriteLockAt);
+  const t = toDate(cfg.favoriteLockAt);
   return t ? now.getTime() >= t.getTime() : false;
 }
 
-export function msUntil(date: Date | Timestamp | null | undefined, now: Date = new Date()): number {
-  const d = tsToDate(date as Timestamp);
+export function msUntil(date: string | Date | null | undefined, now: Date = new Date()): number {
+  const d = toDate(date);
   if (!d) return Number.POSITIVE_INFINITY;
   return d.getTime() - now.getTime();
 }
 
-/**
- * Returns a human-readable local timezone label, e.g.,
- *   "EDT"  / "GMT−4"  / "Argentina Standard Time (GMT−3)"
- */
 export function localTimezoneLabel(date: Date = new Date()): string {
-  // Try the short form first ("EDT"); fall back to the IANA zone name.
   try {
     const short = new Intl.DateTimeFormat(undefined, {
       timeZoneName: "short",
@@ -68,10 +58,6 @@ export function localTimezoneLabel(date: Date = new Date()): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone ?? "";
 }
 
-/**
- * Long-form timezone label used in the footer for a friendly explanation:
- *   "Eastern Daylight Time (GMT−4)"
- */
 export function localTimezoneLong(date: Date = new Date()): string {
   let long = "";
   try {
@@ -88,12 +74,11 @@ export function localTimezoneLong(date: Date = new Date()): string {
   return long ? `${long} (${gmt})` : gmt;
 }
 
-/** Format a Timestamp/Date as a short local kickoff line including timezone. */
 export function formatKickoff(
-  t: Timestamp | Date | null | undefined,
+  t: string | Date | null | undefined,
   opts: { withTz?: boolean } = { withTz: true }
 ): string {
-  const d = tsToDate(t as Timestamp);
+  const d = toDate(t);
   if (!d) return "TBD";
   const parts: Intl.DateTimeFormatOptions = {
     weekday: "short",
@@ -106,14 +91,8 @@ export function formatKickoff(
   return d.toLocaleString(undefined, parts);
 }
 
-/**
- * Returns the elapsed match minute (1..95+) given a kickoff timestamp.
- * Returns 0 before kickoff. Caps at 95 to keep the badge tidy when matches
- * run long (extra time / stoppage). The 90+ case renders as "90+" by the
- * caller if desired.
- */
-export function elapsedMatchMinute(kickoff: Timestamp | Date | null | undefined, now: Date = new Date()): number {
-  const k = tsToDate(kickoff as Timestamp);
+export function elapsedMatchMinute(kickoff: string | Date | null | undefined, now: Date = new Date()): number {
+  const k = toDate(kickoff);
   if (!k) return 0;
   const ms = now.getTime() - k.getTime();
   if (ms <= 0) return 0;

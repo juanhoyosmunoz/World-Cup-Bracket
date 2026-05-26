@@ -1,5 +1,3 @@
-import type { Timestamp } from "firebase/firestore";
-
 export type Stage =
   | "GROUP"
   | "R32"
@@ -22,26 +20,25 @@ export const STAGE_ORDER: Stage[] = [
 export type FixtureStatus = "SCHEDULED" | "LIVE" | "FINISHED" | "POSTPONED";
 
 export interface Team {
-  id: string;            // ISO code or API id
-  name: string;          // "Argentina"
-  shortName: string;     // "ARG"
-  flag: string;          // emoji or URL
-  group?: string;        // "A" .. "L" (group stage only)
+  id: string;
+  name: string;
+  shortName: string;
+  flag: string;
+  group?: string;
 }
 
 export interface Fixture {
   id: string;
-  externalId?: string;   // API-FOOTBALL fixture id
+  externalId?: string;
   stage: Stage;
-  group?: string;        // for GROUP stage
-  bracketSlot?: string;  // e.g., "R32-1", "R16-1", "QF-1", "SF-1", "THIRD", "FINAL"
-  homeTeamId: string | null;   // null when TBD (knockout slots before feeders resolve)
+  group?: string;
+  bracketSlot?: string;
+  homeTeamId: string | null;
   awayTeamId: string | null;
-  kickoff: Timestamp;          // server timestamp
-  lockAt: Timestamp;           // kickoff - 10 min (server-set)
+  kickoff: string;
+  lockAt: string;
   status: FixtureStatus;
   venue?: string;
-  /** filled in after match: feeders for knockout slots (R16/QF/SF/etc.) */
   feederHome?: string;
   feederAway?: string;
 }
@@ -50,38 +47,31 @@ export interface MatchResult {
   fixtureId: string;
   homeGoals: number;
   awayGoals: number;
-  /** team id of winner, or "DRAW" (group stage only). Computed. */
   outcome: "DRAW" | string;
-  finalizedAt: Timestamp;
+  finalizedAt: string;
   source: "API" | "MANUAL";
 }
 
 export interface GroupPrediction {
-  /** doc id = `${uid}_${fixtureId}` */
   uid: string;
   fixtureId: string;
-  /** team id of predicted winner, or "DRAW" */
   pickedOutcome: "DRAW" | string;
-  /** optional exact score */
   homeGoals?: number | null;
   awayGoals?: number | null;
-  updatedAt: Timestamp;
+  updatedAt: string;
 }
 
 export interface BracketPick {
-  /** team id picked to win this slot */
   teamId: string | null;
-  /** optional exact score (used only for FINAL tiebreaker today, future bonus). */
   homeGoals?: number | null;
   awayGoals?: number | null;
 }
 
 export interface KnockoutBracket {
   uid: string;
-  /** keyed by bracket slot id, e.g., "R32-1", "R16-1", ..., "FINAL", "THIRD" */
   picks: Record<string, BracketPick>;
-  submittedAt?: Timestamp;
-  updatedAt: Timestamp;
+  submittedAt?: string;
+  updatedAt: string;
 }
 
 export interface UserProfile {
@@ -89,14 +79,13 @@ export interface UserProfile {
   email: string;
   displayName: string;
   photoURL?: string;
-  createdAt: Timestamp;
-  /** admin flag is the source of truth on the custom claim, not in Firestore. */
+  createdAt: string;
 }
 
 export interface FavoritePick {
   uid: string;
   teamId: string;
-  setAt: Timestamp;
+  setAt: string;
 }
 
 export interface LeaderboardEntry {
@@ -110,22 +99,16 @@ export interface LeaderboardEntry {
   exactScoreBonusPoints: number;
   correctOutcomes: number;
   correctExactScores: number;
-  /** difference in absolute goals from actual final score (tiebreaker, lower=better). null if no pick. */
   finalScoreDelta: number | null;
-  /** previous rank for movement display. null on first compute. */
   previousRank: number | null;
   rank: number;
-  updatedAt: Timestamp;
+  updatedAt: string;
 }
 
 export interface AppConfig {
-  /** epoch ms after which favorite team can no longer be changed */
-  favoriteLockAt: Timestamp;
-  /** epoch ms after which knockout bracket can no longer be edited */
-  knockoutLockAt: Timestamp;
-  /** display only */
-  tournamentStartAt: Timestamp;
-  tournamentEndAt: Timestamp;
-  /** "PRE" | "GROUP" | "KO" | "DONE" — display banner */
+  favoriteLockAt: string;
+  knockoutLockAt: string;
+  tournamentStartAt: string;
+  tournamentEndAt: string;
   phase: "PRE" | "GROUP" | "KO" | "DONE";
 }

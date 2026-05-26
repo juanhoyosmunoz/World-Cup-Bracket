@@ -1,12 +1,9 @@
 // Modal that lists every participant's pick for a given fixture.
-// Security: Firestore rules only return other users' predictions once the
-// fixture is locked (kickoff − 1h or status != SCHEDULED), so this query
-// returns nothing useful before lock by design.
+// The backend only returns other users' predictions once the fixture is locked.
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { collection, onSnapshot } from "firebase/firestore";
-import { db } from "../firebase";
+import { apiFetch } from "../firebase";
 import { watchPredictionsForFixture } from "../lib/firestore";
 import { scoreGroupPrediction } from "../lib/scoring";
 import { formatKickoff } from "../lib/locking";
@@ -29,20 +26,16 @@ export default function MatchPicksModal({ fixtureId, fixture, teams, result, onC
   useEffect(() => watchPredictionsForFixture(fixtureId, setPicks), [fixtureId]);
 
   useEffect(() => {
-    if (DEMO_MODE) {
-      // demo users are baked into the picks; profile fields are sourced from
-      // the demo leaderboard entries which the parent already loaded.
-      return;
-    }
-    return onSnapshot(collection(db, "users"), (snap) => {
-      const m: Record<string, UserProfile> = {};
-      snap.docs.forEach((d) => (m[d.id] = d.data() as UserProfile));
-      setUsers(m);
-    });
+    if (DEMO_MODE) return;
+    apiFetch<any[]>("/api/admin/users")
+      .then((arr) => {
+        const m: Record<string, UserProfile> = {};
+        arr.forEach((u) => (m[u.uid] = u as UserProfile));
+        setUsers(m);
+      })
+      .catch(() => {});
   }, []);
 
-  // Lock body scroll while the modal is open so the page underneath
-  // doesn't scroll behind the backdrop and shift content.
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -51,7 +44,6 @@ export default function MatchPicksModal({ fixtureId, fixture, teams, result, onC
     };
   }, []);
 
-  // Close on Escape key.
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -119,7 +111,7 @@ export default function MatchPicksModal({ fixtureId, fixture, teams, result, onC
               <span>{away?.flag}</span>
               <span>{away?.name ?? "TBD"}</span>
             </h3>
-            <div className="text-xs text-ink-500 mt-1">{formatKickoff(fixture.kickoff as any)}</div>
+            <div className="text-xs text-ink-500 mt-1">{formatKickoff(fixture.kickoff)}</div>
             {result && (
               <div className="text-sm font-bold mt-2 chip-green">
                 Final: {result.homeGoals} – {result.awayGoals}

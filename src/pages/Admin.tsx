@@ -1,15 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  collection,
-  doc,
-  getDocs,
-  onSnapshot,
-  serverTimestamp,
-  setDoc,
-  Timestamp,
-} from "firebase/firestore";
-import { httpsCallable } from "firebase/functions";
-import { db, functions } from "../firebase";
+import { apiFetch } from "../firebase";
 import type { AppConfig, Fixture, MatchResult, Team } from "../types";
 import { formatKickoff } from "../lib/locking";
 
@@ -44,12 +34,12 @@ function SyncTab() {
   const [status, setStatus] = useState<string>("");
   const [busy, setBusy] = useState(false);
 
-  async function call(name: string) {
+  async function call(endpoint: string) {
     setBusy(true);
     setStatus("Running…");
     try {
-      const res = await httpsCallable(functions, name)({});
-      setStatus(JSON.stringify(res.data));
+      const res = await apiFetch<any>(`/api/admin/${endpoint}`, { method: "POST" });
+      setStatus(JSON.stringify(res));
     } catch (e: any) {
       setStatus("Error: " + (e.message ?? String(e)));
     } finally {
@@ -61,13 +51,13 @@ function SyncTab() {
     <div className="card-padded space-y-3">
       <h2 className="font-bold text-lg">Sync fixtures &amp; results</h2>
       <p className="text-sm text-ink-600">
-        These call Cloud Functions which talk to the configured provider (default: API-FOOTBALL).
+        These call the backend API which talks to the configured provider (default: API-FOOTBALL).
       </p>
       <div className="flex flex-wrap gap-2">
-        <button disabled={busy} onClick={() => call("syncTeams")} className="btn-secondary">Sync teams</button>
-        <button disabled={busy} onClick={() => call("syncFixtures")} className="btn-secondary">Sync fixtures</button>
-        <button disabled={busy} onClick={() => call("syncResults")} className="btn-secondary">Sync results</button>
-        <button disabled={busy} onClick={() => call("recomputeLeaderboard")} className="btn-primary">Recompute leaderboard</button>
+        <button disabled={busy} onClick={() => call("sync-teams")} className="btn-secondary">Sync teams</button>
+        <button disabled={busy} onClick={() => call("sync-fixtures")} className="btn-secondary">Sync fixtures</button>
+        <button disabled={busy} onClick={() => call("sync-results")} className="btn-secondary">Sync results</button>
+        <button disabled={busy} onClick={() => call("recompute-leaderboard")} className="btn-primary">Recompute leaderboard</button>
       </div>
       {status && <pre className="text-xs bg-ink-900 text-white rounded-xl p-3 overflow-auto whitespace-pre-wrap">{status}</pre>}
     </div>
@@ -80,22 +70,15 @@ function ResultsTab() {
   const [results, setResults] = useState<Record<string, MatchResult>>({});
   const [edits, setEdits] = useState<Record<string, { h: string; a: string }>>({});
 
-  useEffect(() =>
-    onSnapshot(collection(db, "fixtures"), (snap) =>
-      setFixtures(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })))
-    ), []);
-  useEffect(() =>
-    onSnapshot(collection(db, "teams"), (snap) => {
+  useEffect(() => {
+    apiFetch<Fixture[]>("/api/fixtures").then(setFixtures);
+    apiFetch<Team[]>("/api/teams").then((arr) => {
       const m: Record<string, Team> = {};
-      snap.docs.forEach((d) => (m[d.id] = d.data() as Team));
+      arr.forEach((t) => (m[t.id] = t));
       setTeams(m);
-    }), []);
-  useEffect(() =>
-    onSnapshot(collection(db, "results"), (snap) => {
-      const m: Record<string, MatchResult> = {};
-      snap.docs.forEach((d) => (m[d.id] = d.data() as MatchResult));
-      setResults(m);
-    }), []);
+    });
+    apiFetch<Record<string, MatchResult>>("/api/results").then(setResults);
+  }, []);
 
   async function saveManual(fx: Fixture) {
     const e = edits[fx.id];
@@ -103,21 +86,21 @@ function ResultsTab() {
     const h = parseInt(e.h, 10);
     const a = parseInt(e.a, 10);
     if (!Number.isFinite(h) || !Number.isFinite(a)) return;
-    const outcome = h === a ? "DRAW" : h > a ? fx.homeTeamId! : fx.awayTeamId!;
-    await setDoc(doc(db, "results", fx.id), {
-      fixtureId: fx.id,
-      homeGoals: h,
-      awayGoals: a,
-      outcome,
-      finalizedAt: serverTimestamp(),
-      source: "MANUAL",
-    } as MatchResult, { merge: true });
-    // Mark fixture finished
-    await setDoc(doc(db, "fixtures", fx.id), { status: "FINISHED" }, { merge: true });
+    try {
+      await apiFetch(`/api/admin/results/${fx.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ homeGoals: h, awayGoals: a }),
+      });
+      // Refresh results
+      const updated = await apiFetch<Record<string, MatchResult>>("/api/results");
+      setResults(updated);
+    } catch (e: any) {
+      alert("Error: " + (e.message ?? String(e)));
+    }
   }
 
   const sorted = useMemo(
-    () => [...fixtures].sort((a, b) => (a.kickoff as any).toMillis() - (b.kickoff as any).toMillis()),
+    () => [...fixtures].sort((a, b) => new Date(a.kickoff).getTime() - new Date(b.kickoff).getTime()),
     [fixtures]
   );
 
@@ -151,7 +134,7 @@ function ResultsTab() {
                   {h?.flag} {h?.name ?? "TBD"} — {a?.flag} {a?.name ?? "TBD"}
                   <div className="text-xs text-ink-500">{fx.group ? `Group ${fx.group}` : fx.bracketSlot}</div>
                 </td>
-                <td className="px-4 py-2 text-xs">{formatKickoff(fx.kickoff as any)}</td>
+                <td className="px-4 py-2 text-xs">{formatKickoff(fx.kickoff)}</td>
                 <td className="px-4 py-2"><span className="chip-gray">{fx.status}</span></td>
                 <td className="px-4 py-2">
                   <div className="flex items-center gap-1">
@@ -183,30 +166,15 @@ function ResultsTab() {
 
 function UsersTab() {
   const [users, setUsers] = useState<any[]>([]);
-  const [status, setStatus] = useState("");
   useEffect(() => {
-    return onSnapshot(collection(db, "users"), (snap) =>
-      setUsers(snap.docs.map((d) => ({ uid: d.id, ...d.data() })))
-    );
+    apiFetch<any[]>("/api/admin/users").then(setUsers);
   }, []);
-
-  async function grantAdmins() {
-    setStatus("Setting admin claims…");
-    try {
-      const res = await httpsCallable(functions, "setAdmins")({});
-      setStatus(JSON.stringify(res.data));
-    } catch (e: any) {
-      setStatus("Error: " + (e.message ?? String(e)));
-    }
-  }
 
   return (
     <div className="card-padded">
       <div className="flex justify-between items-center mb-3">
         <h2 className="font-bold text-lg">Participants ({users.length})</h2>
-        <button onClick={grantAdmins} className="btn-secondary">Apply admin claims</button>
       </div>
-      {status && <div className="text-xs mb-3 chip-gray">{status}</div>}
       <div className="overflow-hidden rounded-xl border border-ink-100">
         <table className="w-full text-sm">
           <thead className="bg-ink-50 text-ink-500">
@@ -217,7 +185,7 @@ function UsersTab() {
             </tr>
           </thead>
           <tbody>
-            {users.map((u) => (
+            {users.map((u: any) => (
               <tr key={u.uid} className="border-t border-ink-100">
                 <td className="px-4 py-2 font-semibold">{u.displayName}</td>
                 <td className="px-4 py-2">{u.email}</td>
@@ -235,26 +203,31 @@ function ConfigTab() {
   const [cfg, setCfg] = useState<AppConfig | null>(null);
   const [form, setForm] = useState({ favorite: "", knockout: "", start: "", end: "", phase: "PRE" as AppConfig["phase"] });
 
-  useEffect(() => onSnapshot(doc(db, "appConfig", "main"), (s) => {
-    const d = s.exists() ? (s.data() as AppConfig) : null;
-    setCfg(d);
-    if (d) setForm({
-      favorite: tsToLocalInput(d.favoriteLockAt),
-      knockout: tsToLocalInput(d.knockoutLockAt),
-      start: tsToLocalInput(d.tournamentStartAt),
-      end: tsToLocalInput(d.tournamentEndAt),
-      phase: d.phase,
+  useEffect(() => {
+    apiFetch<AppConfig | null>("/api/app-config").then((d) => {
+      setCfg(d);
+      if (d) setForm({
+        favorite: isoToLocalInput(d.favoriteLockAt),
+        knockout: isoToLocalInput(d.knockoutLockAt),
+        start: isoToLocalInput(d.tournamentStartAt),
+        end: isoToLocalInput(d.tournamentEndAt),
+        phase: d.phase,
+      });
     });
-  }), []);
+  }, []);
 
   async function save() {
-    await setDoc(doc(db, "appConfig", "main"), {
-      favoriteLockAt: Timestamp.fromDate(new Date(form.favorite)),
-      knockoutLockAt: Timestamp.fromDate(new Date(form.knockout)),
-      tournamentStartAt: Timestamp.fromDate(new Date(form.start)),
-      tournamentEndAt: Timestamp.fromDate(new Date(form.end)),
-      phase: form.phase,
-    } satisfies AppConfig, { merge: true });
+    const updated = await apiFetch<AppConfig>("/api/admin/config", {
+      method: "PUT",
+      body: JSON.stringify({
+        favoriteLockAt: new Date(form.favorite).toISOString(),
+        knockoutLockAt: new Date(form.knockout).toISOString(),
+        tournamentStartAt: new Date(form.start).toISOString(),
+        tournamentEndAt: new Date(form.end).toISOString(),
+        phase: form.phase,
+      }),
+    });
+    setCfg(updated);
   }
 
   return (
@@ -298,9 +271,9 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function tsToLocalInput(t: any): string {
-  const d = t?.toDate?.();
-  if (!d) return "";
+function isoToLocalInput(iso: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
   const off = d.getTimezoneOffset();
   const local = new Date(d.getTime() - off * 60000);
   return local.toISOString().slice(0, 16);
@@ -308,19 +281,19 @@ function tsToLocalInput(t: any): string {
 
 function HealthTab() {
   const [health, setHealth] = useState<any[]>([]);
-  useEffect(() => onSnapshot(collection(db, "syncHealth"), (s) =>
-    setHealth(s.docs.map((d) => ({ id: d.id, ...d.data() })))
-  ), []);
+  useEffect(() => {
+    apiFetch<any[]>("/api/admin/sync-health").then(setHealth);
+  }, []);
   return (
     <div className="card-padded">
       <h2 className="font-bold text-lg mb-3">API sync health</h2>
       {health.length === 0 && <p className="text-ink-500 text-sm">No sync runs recorded yet.</p>}
       <div className="space-y-2">
-        {health.sort((a, b) => (b.at?.toMillis?.() ?? 0) - (a.at?.toMillis?.() ?? 0)).slice(0, 25).map((h) => (
+        {health.slice(0, 25).map((h: any) => (
           <div key={h.id} className="rounded-xl border border-ink-100 p-3 flex items-center justify-between">
             <div>
               <div className="font-semibold">{h.task}</div>
-              <div className="text-xs text-ink-500">{h.at?.toDate?.().toLocaleString()}</div>
+              <div className="text-xs text-ink-500">{h.at ? new Date(h.at).toLocaleString() : ""}</div>
             </div>
             <div className="text-sm">
               {h.ok ? <span className="chip-green">OK</span> : <span className="chip-red">{h.error || "Failed"}</span>}

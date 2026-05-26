@@ -28,12 +28,12 @@ export default function MatchCard({ fixture, teams, myPrediction, result, favori
 
   // Tick the live minute counter while the match is in progress. 30s is
   // tight enough to feel live without wasting renders.
-  const [liveMinute, setLiveMinute] = useState(() => elapsedMatchMinute(fixture.kickoff as any));
+  const [liveMinute, setLiveMinute] = useState(() => elapsedMatchMinute(fixture.kickoff));
   useEffect(() => {
     if (!isLive) return;
-    setLiveMinute(elapsedMatchMinute(fixture.kickoff as any));
+    setLiveMinute(elapsedMatchMinute(fixture.kickoff));
     const id = setInterval(
-      () => setLiveMinute(elapsedMatchMinute(fixture.kickoff as any)),
+      () => setLiveMinute(elapsedMatchMinute(fixture.kickoff)),
       30_000
     );
     return () => clearInterval(id);
@@ -89,7 +89,7 @@ export default function MatchCard({ fixture, teams, myPrediction, result, favori
     }
   }
 
-  const kickoffLocal = formatKickoff(fixture.kickoff as any);
+  const kickoffLocal = formatKickoff(fixture.kickoff);
 
   return (
     <div className={clsx("card-padded relative", locked && "opacity-95")}>

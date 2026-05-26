@@ -10,3 +10,9 @@ dist/
 functions/lib/
 functions/node_modules/
 serviceAccount.json
+
+# Python / Backend
+__pycache__/
+*.pyc
+.venv/
+*.db

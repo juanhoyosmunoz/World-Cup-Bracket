@@ -109,7 +109,7 @@ function UpcomingTile({
       </div>
 
       <div className="text-[11px] text-ink-500 mt-2 leading-tight">
-        {formatKickoff(fixture.kickoff as any)}
+        {formatKickoff(fixture.kickoff)}
       </div>
 
       <div className="mt-3 space-y-1.5">
@@ -118,7 +118,7 @@ function UpcomingTile({
       </div>
 
       <div className="mt-3 pt-2.5 border-t border-ink-100 flex items-center justify-between text-[11px]">
-        <Countdown to={fixture.lockAt as any} className="text-ink-500" prefix="Locks in" />
+        <Countdown to={fixture.lockAt} className="text-ink-500" prefix="Locks in" />
         {hasPick ? (
           <span className="chip-green !py-0 !px-2 text-[10px]">
             ✓ {myPickLabel}
