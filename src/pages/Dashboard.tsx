@@ -16,6 +16,7 @@ import MatchCard from "../components/MatchCard";
 import Countdown from "../components/Countdown";
 import MatchPicksModal from "../components/MatchPicksModal";
 import UpcomingBanner from "../components/UpcomingBanner";
+import FlagIcon from "../components/FlagIcon";
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -91,7 +92,14 @@ export default function Dashboard() {
             <Stat label="Your rank" value={myLine ? `#${myLine.rank}` : "—"} />
             <Stat
               label="Favorite team"
-              value={favorite ? teams[favorite.teamId]?.name ?? "—" : "Not set"}
+              value={
+                favorite && teams[favorite.teamId] ? (
+                  <span className="inline-flex items-center gap-2">
+                    <FlagIcon flag={teams[favorite.teamId].flag} className="w-7 h-5 object-cover rounded-sm" />
+                    {teams[favorite.teamId].name}
+                  </span>
+                ) : "Not set"
+              }
               cta={
                 !favLocked && (
                   <Link to="/picks" className="text-xs underline">

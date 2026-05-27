@@ -48,8 +48,10 @@ async def scheduled_sync():
                 existing.stage = f["stage"]
                 existing.group = f.get("group")
                 existing.bracket_slot = f.get("bracketSlot")
-                existing.home_team_id = f.get("homeTeamId")
-                existing.away_team_id = f.get("awayTeamId")
+                if f.get("homeTeamId") is not None:
+                    existing.home_team_id = f["homeTeamId"]
+                if f.get("awayTeamId") is not None:
+                    existing.away_team_id = f["awayTeamId"]
                 existing.kickoff = kickoff
                 existing.lock_at = lock_at
                 existing.status = f["status"]

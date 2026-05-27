@@ -148,6 +148,7 @@ class KnockoutBracketOut(BaseModel):
 
 class KnockoutBracketIn(BaseModel):
     picks: dict[str, BracketPick]
+    submittedAt: str | None = None
 
 
 class LeaderboardOut(BaseModel):

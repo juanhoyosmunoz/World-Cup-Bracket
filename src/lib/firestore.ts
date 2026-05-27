@@ -137,7 +137,7 @@ export async function saveBracket(uid: string, b: Partial<KnockoutBracket>) {
   }
   await apiFetch("/api/brackets", {
     method: "PUT",
-    body: JSON.stringify({ picks: b.picks ?? {} }),
+    body: JSON.stringify({ picks: b.picks ?? {}, submittedAt: b.submittedAt ?? null }),
   });
 }
 

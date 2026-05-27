@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     allowed_email_domain: str = "antenna.live"
 
     apifootball_key: str = ""
+    # Legacy settings kept for backward compat; football-data.org ignores them.
     apifootball_league_id: int = 1
     apifootball_season: int = 2026
 

@@ -10,6 +10,7 @@ import { formatKickoff } from "../lib/locking";
 import { DEMO_MODE } from "../lib/demo";
 import type { Fixture, GroupPrediction, MatchResult, Team, UserProfile } from "../types";
 import clsx from "clsx";
+import FlagIcon from "./FlagIcon";
 
 interface Props {
   fixtureId: string;
@@ -105,10 +106,10 @@ export default function MatchPicksModal({ fixtureId, fixture, teams, result, onC
               {fixture.group ? `Group ${fixture.group}` : fixture.bracketSlot ?? "Match"}
             </div>
             <h3 className="text-lg font-extrabold mt-0.5 flex items-center gap-2">
-              <span>{home?.flag}</span>
+              <FlagIcon flag={home?.flag} />
               <span>{home?.name ?? "TBD"}</span>
               <span className="text-ink-400 mx-1">vs</span>
-              <span>{away?.flag}</span>
+              <FlagIcon flag={away?.flag} />
               <span>{away?.name ?? "TBD"}</span>
             </h3>
             <div className="text-xs text-ink-500 mt-1">{formatKickoff(fixture.kickoff)}</div>

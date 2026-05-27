@@ -142,16 +142,22 @@ def save_bracket(
         slot: pick.model_dump() for slot, pick in body.picks.items()
     }
 
+    submitted_at = None
+    if body.submittedAt:
+        submitted_at = datetime.fromisoformat(body.submittedAt.replace("Z", "+00:00"))
+
     now = datetime.now(timezone.utc)
     existing = db.get(KnockoutBracket, user.uid)
     if existing:
-        merged = {**(existing.picks or {}), **picks_dict}
-        existing.picks = merged
+        existing.picks = picks_dict
         existing.updated_at = now
+        if submitted_at:
+            existing.submitted_at = submitted_at
     else:
         existing = KnockoutBracket(
             uid=user.uid,
             picks=picks_dict,
+            submitted_at=submitted_at,
             updated_at=now,
         )
         db.add(existing)

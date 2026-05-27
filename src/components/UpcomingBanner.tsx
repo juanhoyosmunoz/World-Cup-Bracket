@@ -6,6 +6,7 @@ import clsx from "clsx";
 import type { Fixture, GroupPrediction, Team } from "../types";
 import { formatKickoff } from "../lib/locking";
 import Countdown from "./Countdown";
+import FlagIcon from "./FlagIcon";
 
 interface Props {
   fixtures: Fixture[];
@@ -135,7 +136,7 @@ function Row({ team }: { team?: Team }) {
   if (!team) return <div className="text-ink-400 italic text-sm">TBD</div>;
   return (
     <div className="flex items-center gap-2 text-sm">
-      <span className="text-lg leading-none">{team.flag}</span>
+      <FlagIcon flag={team.flag} className="w-5 h-3.5 object-cover rounded-sm" />
       <span className="font-semibold truncate">{team.name}</span>
     </div>
   );

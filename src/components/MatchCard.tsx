@@ -48,21 +48,36 @@ export default function MatchCard({ fixture, teams, myPrediction, result, favori
   const [hg, setHg] = useState<string>(myPrediction?.homeGoals?.toString() ?? "");
   const [ag, setAg] = useState<string>(myPrediction?.awayGoals?.toString() ?? "");
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [lastSaved, setLastSaved] = useState<{ outcome: string; hg: string; ag: string } | null>(null);
 
   useEffect(() => {
     setOutcome(myPrediction?.pickedOutcome ?? "");
     setHg(myPrediction?.homeGoals?.toString() ?? "");
     setAg(myPrediction?.awayGoals?.toString() ?? "");
+    setLastSaved(null);
   }, [myPrediction?.pickedOutcome, myPrediction?.homeGoals, myPrediction?.awayGoals]);
 
+  useEffect(() => {
+    const h = parseInt(hg, 10);
+    const a = parseInt(ag, 10);
+    if (!Number.isFinite(h) || !Number.isFinite(a)) return;
+    if (h > a && fixture.homeTeamId) setOutcome(fixture.homeTeamId);
+    else if (a > h && fixture.awayTeamId) setOutcome(fixture.awayTeamId);
+    else if (h === a) setOutcome("DRAW");
+  }, [hg, ag, fixture.homeTeamId, fixture.awayTeamId]);
+
   const dirty = useMemo(() => {
-    const cur = {
+    const base = {
       outcome: myPrediction?.pickedOutcome ?? "",
       hg: myPrediction?.homeGoals?.toString() ?? "",
       ag: myPrediction?.awayGoals?.toString() ?? "",
     };
-    return cur.outcome !== outcome || cur.hg !== hg || cur.ag !== ag;
-  }, [myPrediction, outcome, hg, ag]);
+    const matches = (ref: { outcome: string; hg: string; ag: string }) =>
+      ref.outcome === outcome && ref.hg === hg && ref.ag === ag;
+    if (matches(base)) return false;
+    if (lastSaved && matches(lastSaved)) return false;
+    return true;
+  }, [myPrediction, outcome, hg, ag, lastSaved]);
 
   // Prevent accidental tab close with unsaved changes.
   useEffect(() => {
@@ -82,6 +97,7 @@ export default function MatchCard({ fixture, teams, myPrediction, result, favori
       const hgN = hg === "" ? null : Math.max(0, parseInt(hg, 10));
       const agN = ag === "" ? null : Math.max(0, parseInt(ag, 10));
       await onSave({ outcome, homeGoals: Number.isFinite(hgN as number) ? hgN : null, awayGoals: Number.isFinite(agN as number) ? agN : null });
+      setLastSaved({ outcome, hg, ag });
       setStatus("saved");
       setTimeout(() => setStatus("idle"), 1500);
     } catch {
@@ -89,6 +105,7 @@ export default function MatchCard({ fixture, teams, myPrediction, result, favori
     }
   }
 
+  const scoreSet = hg !== "" && ag !== "" && Number.isFinite(parseInt(hg, 10)) && Number.isFinite(parseInt(ag, 10));
   const kickoffLocal = formatKickoff(fixture.kickoff);
 
   return (
@@ -120,20 +137,16 @@ export default function MatchCard({ fixture, teams, myPrediction, result, favori
       </div>
 
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4">
-        <button
-          type="button"
-          disabled={locked || !fixture.homeTeamId}
-          onClick={() => setOutcome(fixture.homeTeamId!)}
+        <div
           className={clsx(
-            "flex items-center justify-end gap-3 px-3 py-3 rounded-xl border transition",
+            "flex flex-col items-center justify-center gap-1 px-3 py-3 rounded-xl border transition",
             outcome === fixture.homeTeamId
               ? "border-brand-500 bg-brand-50"
-              : "border-ink-200 hover:bg-ink-50",
-            locked && "cursor-not-allowed"
+              : "border-ink-200",
           )}
         >
-          <TeamBadge team={home} />
-        </button>
+          <TeamBadge team={home} layout="stacked" />
+        </div>
 
         <div className="flex flex-col items-center gap-1">
           {result ? (
@@ -142,19 +155,16 @@ export default function MatchCard({ fixture, teams, myPrediction, result, favori
             </div>
           ) : (
             <>
-              <button
-                type="button"
-                disabled={locked}
-                onClick={() => setOutcome("DRAW")}
+              <div
                 className={clsx(
                   "px-3 py-1.5 rounded-full text-xs font-bold border",
                   outcome === "DRAW"
                     ? "border-brand-500 bg-brand-50"
-                    : "border-ink-200 hover:bg-ink-50"
+                    : "border-ink-200"
                 )}
               >
                 DRAW
-              </button>
+              </div>
               <div className="flex items-center gap-1">
                 <input
                   disabled={locked}
@@ -174,25 +184,21 @@ export default function MatchCard({ fixture, teams, myPrediction, result, favori
                   onChange={(e) => setAg(e.target.value.replace(/[^0-9]/g, ""))}
                 />
               </div>
-              <div className="text-[10px] text-ink-400 uppercase tracking-wide">exact (optional)</div>
+              <div className="text-[10px] text-ink-400 uppercase tracking-wide">score</div>
             </>
           )}
         </div>
 
-        <button
-          type="button"
-          disabled={locked || !fixture.awayTeamId}
-          onClick={() => setOutcome(fixture.awayTeamId!)}
+        <div
           className={clsx(
-            "flex items-center justify-start gap-3 px-3 py-3 rounded-xl border transition",
+            "flex flex-col items-center justify-center gap-1 px-3 py-3 rounded-xl border transition",
             outcome === fixture.awayTeamId
               ? "border-brand-500 bg-brand-50"
-              : "border-ink-200 hover:bg-ink-50",
-            locked && "cursor-not-allowed"
+              : "border-ink-200",
           )}
         >
-          <TeamBadge team={away} />
-        </button>
+          <TeamBadge team={away} layout="stacked" />
+        </div>
       </div>
 
       {!locked && onSave && (
@@ -203,7 +209,7 @@ export default function MatchCard({ fixture, teams, myPrediction, result, favori
           <button
             className="btn-primary"
             onClick={save}
-            disabled={!outcome || !dirty || status === "saving"}
+            disabled={!outcome || !scoreSet || !dirty || status === "saving"}
           >
             {status === "saving" ? "Saving…" : "Save pick"}
           </button>

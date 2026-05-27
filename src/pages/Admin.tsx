@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../firebase";
 import type { AppConfig, Fixture, MatchResult, Team } from "../types";
 import { formatKickoff } from "../lib/locking";
+import FlagIcon from "../components/FlagIcon";
 
 export default function Admin() {
   const [tab, setTab] = useState<"sync" | "results" | "users" | "config" | "health">("sync");
@@ -131,7 +132,7 @@ function ResultsTab() {
             return (
               <tr key={fx.id} className="border-t border-ink-100">
                 <td className="px-4 py-2 font-semibold">
-                  {h?.flag} {h?.name ?? "TBD"} — {a?.flag} {a?.name ?? "TBD"}
+                  <span className="inline-flex items-center gap-1"><FlagIcon flag={h?.flag} /> {h?.name ?? "TBD"}</span> — <span className="inline-flex items-center gap-1"><FlagIcon flag={a?.flag} /> {a?.name ?? "TBD"}</span>
                   <div className="text-xs text-ink-500">{fx.group ? `Group ${fx.group}` : fx.bracketSlot}</div>
                 </td>
                 <td className="px-4 py-2 text-xs">{formatKickoff(fx.kickoff)}</td>

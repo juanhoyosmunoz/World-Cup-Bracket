@@ -13,6 +13,7 @@ import {
   computeGroupStandings,
   type StandingsRow,
 } from "../lib/standings";
+import FlagIcon from "../components/FlagIcon";
 
 export default function Groups() {
   const { user } = useAuth();
@@ -166,7 +167,7 @@ function GroupCard({
                       status === "out" && "bg-ink-200",
                       status === "tbd" && "bg-ink-200",
                     )} />
-                    <span className="text-lg leading-none">{team?.flag ?? "·"}</span>
+                    <FlagIcon flag={team?.flag} className="w-6 h-4 object-cover rounded-sm" />
                     <span className="font-semibold">
                       {team?.name ?? r.teamId}
                       {isFav && <span className="ml-1.5 chip-yellow text-[10px]">★ favorite</span>}
