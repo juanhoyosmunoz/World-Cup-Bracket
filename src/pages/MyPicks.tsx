@@ -18,7 +18,7 @@ import MatchCard from "../components/MatchCard";
 import Countdown from "../components/Countdown";
 import MatchPicksModal from "../components/MatchPicksModal";
 import FlagIcon from "../components/FlagIcon";
-import { favoriteLocked, knockoutLocked } from "../lib/locking";
+import { favoriteLocked, knockoutSlotLocked, knockoutSlotLockAt } from "../lib/locking";
 import { KO_SLOTS, SLOTS_BY_STAGE, stageLabel, feederSlots } from "../lib/bracket";
 import { computeGroupStandings } from "../lib/standings";
 
@@ -373,7 +373,21 @@ function KnockoutTab({
   bracket: KnockoutBracket | null;
   onSave: (picks: KnockoutBracket["picks"], submit?: boolean) => Promise<void>;
 }) {
-  const locked = knockoutLocked(cfg);
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const isSlotLocked = (slot: string) => knockoutSlotLocked(slot, fixtures, cfg, now);
+  const allLocked = KO_SLOTS.every((s) => isSlotLocked(s));
+  const nextLockAt = useMemo(() => {
+    const upcoming = KO_SLOTS
+      .map((s) => knockoutSlotLockAt(s, fixtures, cfg))
+      .filter((d): d is Date => !!d && d.getTime() > now.getTime())
+      .sort((a, b) => a.getTime() - b.getTime());
+    return upcoming[0] ?? null;
+  }, [fixtures, cfg, now]);
+
   const [picks, setPicks] = useState<KnockoutBracket["picks"]>(bracket?.picks ?? {});
   const [dirty, setDirty] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -474,7 +488,7 @@ function KnockoutTab({
   const filledCount = KO_SLOTS.filter((s) => picks[s]?.teamId).length;
   const allFilled = filledCount === totalSlots;
 
-  const openSlot = (slot: string) => { if (!locked) setActiveSlot(slot); };
+  const openSlot = (slot: string) => setActiveSlot(slot);
 
   const activeHome = activeSlot ? candidatesFor(activeSlot)[0] : undefined;
   const activeAway = activeSlot ? candidatesFor(activeSlot)[1] : undefined;
@@ -493,15 +507,15 @@ function KnockoutTab({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {locked ? (
+          {allLocked ? (
             <span className="chip-red">Bracket locked</span>
           ) : (
-            cfg?.knockoutLockAt && (
-              <Countdown to={cfg.knockoutLockAt} className="chip-yellow" />
+            nextLockAt && (
+              <Countdown to={nextLockAt} className="chip-yellow" prefix="Next round locks in" />
             )
           )}
-          {isSubmitted && !locked && <span className="chip-green">Submitted</span>}
-          {!locked && !isSubmitted && (
+          {isSubmitted && !allLocked && <span className="chip-green">Submitted</span>}
+          {!allLocked && !isSubmitted && (
             <>
               <button
                 onClick={() => handleSave(false)}
@@ -519,7 +533,7 @@ function KnockoutTab({
               </button>
             </>
           )}
-          {!locked && isSubmitted && (
+          {!allLocked && isSubmitted && (
             <button
               onClick={() => setConfirming(true)}
               disabled={!dirty || saveStatus === "saving"}
@@ -538,16 +552,16 @@ function KnockoutTab({
         <div className="flex items-stretch p-2 w-fit mx-auto min-h-[calc(100vh-220px)]">
           {/* ---- LEFT HALF ---- */}
           <BracketRound label="R32" slots={["R32-1","R32-2","R32-3","R32-4","R32-5","R32-6","R32-7","R32-8"]}
-            picks={picks} candidatesFor={candidatesFor} onOpenSlot={openSlot} />
+            picks={picks} candidatesFor={candidatesFor} onOpenSlot={openSlot} isLocked={isSlotLocked} />
           <BracketConnector count={4} side="left" />
           <BracketRound label="R16" slots={["R16-1","R16-2","R16-3","R16-4"]}
-            picks={picks} candidatesFor={candidatesFor} onOpenSlot={openSlot} />
+            picks={picks} candidatesFor={candidatesFor} onOpenSlot={openSlot} isLocked={isSlotLocked} />
           <BracketConnector count={2} side="left" />
           <BracketRound label="QF" slots={["QF-1","QF-2"]}
-            picks={picks} candidatesFor={candidatesFor} onOpenSlot={openSlot} />
+            picks={picks} candidatesFor={candidatesFor} onOpenSlot={openSlot} isLocked={isSlotLocked} />
           <BracketConnector count={1} side="left" />
           <BracketRound label="SF" slots={["SF-1"]}
-            picks={picks} candidatesFor={candidatesFor} onOpenSlot={openSlot} />
+            picks={picks} candidatesFor={candidatesFor} onOpenSlot={openSlot} isLocked={isSlotLocked} />
           <BracketLine />
 
           {/* ---- CENTER: FINAL + THIRD ---- */}
@@ -562,6 +576,7 @@ function KnockoutTab({
                   slot="FINAL" highlight
                   candidates={candidatesFor("FINAL")}
                   pick={picks["FINAL"]}
+                  locked={isSlotLocked("FINAL")}
                   onClick={() => openSlot("FINAL")}
                 />
               </div>
@@ -572,6 +587,7 @@ function KnockoutTab({
                     slot="THIRD"
                     candidates={candidatesFor("THIRD")}
                     pick={picks["THIRD"]}
+                    locked={isSlotLocked("THIRD")}
                     onClick={() => openSlot("THIRD")}
                   />
                 </div>
@@ -582,16 +598,16 @@ function KnockoutTab({
           <BracketLine />
           {/* ---- RIGHT HALF (mirrored) ---- */}
           <BracketRound label="SF" slots={["SF-2"]}
-            picks={picks} candidatesFor={candidatesFor} onOpenSlot={openSlot} />
+            picks={picks} candidatesFor={candidatesFor} onOpenSlot={openSlot} isLocked={isSlotLocked} />
           <BracketConnector count={1} side="right" />
           <BracketRound label="QF" slots={["QF-3","QF-4"]}
-            picks={picks} candidatesFor={candidatesFor} onOpenSlot={openSlot} />
+            picks={picks} candidatesFor={candidatesFor} onOpenSlot={openSlot} isLocked={isSlotLocked} />
           <BracketConnector count={2} side="right" />
           <BracketRound label="R16" slots={["R16-5","R16-6","R16-7","R16-8"]}
-            picks={picks} candidatesFor={candidatesFor} onOpenSlot={openSlot} />
+            picks={picks} candidatesFor={candidatesFor} onOpenSlot={openSlot} isLocked={isSlotLocked} />
           <BracketConnector count={4} side="right" />
           <BracketRound label="R32" slots={["R32-9","R32-10","R32-11","R32-12","R32-13","R32-14","R32-15","R32-16"]}
-            picks={picks} candidatesFor={candidatesFor} onOpenSlot={openSlot} />
+            picks={picks} candidatesFor={candidatesFor} onOpenSlot={openSlot} isLocked={isSlotLocked} />
         </div>
       </div>
 
@@ -601,7 +617,8 @@ function KnockoutTab({
           homeTeam={activeHome}
           awayTeam={activeAway}
           currentPick={picks[activeSlot]}
-          locked={locked}
+          locked={isSlotLocked(activeSlot)}
+          lockAt={knockoutSlotLockAt(activeSlot, fixtures, cfg)}
           onSave={(teamId, hg, ag) => {
             setPick(activeSlot, teamId, { h: hg, a: ag });
             setActiveSlot(null);
@@ -623,13 +640,14 @@ function KnockoutTab({
 }
 
 function BracketRound({
-  label, slots, picks, candidatesFor, onOpenSlot,
+  label, slots, picks, candidatesFor, onOpenSlot, isLocked,
 }: {
   label: string;
   slots: string[];
   picks: KnockoutBracket["picks"];
   candidatesFor: (slot: string) => (Team | undefined)[];
   onOpenSlot: (slot: string) => void;
+  isLocked: (slot: string) => boolean;
 }) {
   return (
     <div className="flex flex-col w-24 shrink-0">
@@ -643,6 +661,7 @@ function BracketRound({
               slot={slot}
               candidates={candidatesFor(slot)}
               pick={picks[slot]}
+              locked={isLocked(slot)}
               onClick={() => onOpenSlot(slot)}
             />
           </div>
@@ -692,24 +711,32 @@ function BracketLine() {
 }
 
 function BracketSlot({
-  slot, candidates, pick, onClick, highlight,
+  slot, candidates, pick, onClick, highlight, locked,
 }: {
   slot: string;
   candidates: (Team | undefined)[];
   pick?: BracketPick;
   onClick: () => void;
   highlight?: boolean;
+  locked?: boolean;
 }) {
   return (
     <button type="button" onClick={onClick}
       className={clsx(
-        "w-full rounded px-1 py-0.5 text-left cursor-pointer transition",
-        highlight ? "border-2 border-brand-400 bg-brand-50/40 hover:bg-brand-50/60" : "border border-ink-200 bg-white hover:border-ink-300"
+        "w-full rounded px-1 py-0.5 text-left transition",
+        locked
+          ? "border border-ink-200 bg-ink-50 cursor-default"
+          : highlight
+            ? "border-2 border-brand-400 bg-brand-50/40 hover:bg-brand-50/60 cursor-pointer"
+            : "border border-ink-200 bg-white hover:border-ink-300 cursor-pointer"
       )}>
       <div className={clsx(
-        "text-[8px] font-bold uppercase mb-0.5",
+        "text-[8px] font-bold uppercase mb-0.5 flex items-center justify-between gap-1",
         highlight ? "text-brand-600" : "text-ink-400"
-      )}>{slot}</div>
+      )}>
+        <span>{slot}</span>
+        {locked && <span className="text-ink-400" title="Locked">🔒</span>}
+      </div>
       <div className="space-y-px">
         {candidates.map((team, i) => {
           const isWinner = team && pick?.teamId === team.id;
@@ -746,13 +773,14 @@ function slotDisplayLabel(slot: string): string {
 }
 
 function BracketScoreModal({
-  slot, homeTeam, awayTeam, currentPick, locked, onSave, onClose,
+  slot, homeTeam, awayTeam, currentPick, locked, lockAt, onSave, onClose,
 }: {
   slot: string;
   homeTeam: Team;
   awayTeam: Team;
   currentPick?: BracketPick;
   locked: boolean;
+  lockAt?: string | Date | null;
   onSave: (teamId: string | null, hg: number | null, ag: number | null) => void;
   onClose: () => void;
 }) {
@@ -773,7 +801,14 @@ function BracketScoreModal({
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
       <div className="card-padded max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
-        <div className="text-xs uppercase tracking-wider text-ink-500 font-bold">{slotDisplayLabel(slot)}</div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="text-xs uppercase tracking-wider text-ink-500 font-bold">{slotDisplayLabel(slot)}</div>
+          {locked ? (
+            <span className="chip-red shrink-0">Locked</span>
+          ) : (
+            lockAt && <Countdown to={lockAt} className="chip-yellow shrink-0" />
+          )}
+        </div>
 
         <div className="mt-4 space-y-3">
           <div className={clsx("flex items-center gap-3 p-2 rounded-lg transition",
