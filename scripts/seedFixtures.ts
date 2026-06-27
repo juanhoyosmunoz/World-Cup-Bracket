@@ -11,6 +11,7 @@
 
 import { initializeApp, applicationDefault } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { KO_SLOTS, knockoutSlotTimes, stageOfSlot } from "../src/lib/bracket";
 
 initializeApp({ credential: applicationDefault() });
 const db = getFirestore();
@@ -73,21 +74,42 @@ async function main() {
     cursor += 4 * 24 * 3600_000;
   }
 
+  // Knockout fixtures — one per bracket slot (R32 → FINAL). Teams stay TBD until
+  // the API sync fills the bracket once the group stage resolves. Each fixture
+  // carries an official WC 2026 kickoff/lock time so the bracket UI shows a
+  // per-match lock countdown; each pick locks 1 hour before kickoff.
+  let koCount = 0;
+  for (const slot of KO_SLOTS) {
+    const t = knockoutSlotTimes(slot)!;
+    const id = `KO-${slot}`;
+    batch.set(db.collection("fixtures").doc(id), {
+      id,
+      stage: stageOfSlot(slot),
+      bracketSlot: slot,
+      homeTeamId: null,
+      awayTeamId: null,
+      kickoff: Timestamp.fromMillis(t.kickoffMs),
+      lockAt: Timestamp.fromMillis(t.lockMs),
+      status: "SCHEDULED",
+    });
+    koCount++;
+  }
+
   // appConfig with sensible defaults
   const tournamentStart = Timestamp.fromMillis(start.getTime());
   const tournamentEnd = Timestamp.fromMillis(start.getTime() + 35 * 24 * 3600_000);
-  // First KO match ~ 14 days into tournament, lock = -10 min
-  const firstKoMs = start.getTime() + 14 * 24 * 3600_000;
   batch.set(db.collection("appConfig").doc("main"), {
     favoriteLockAt: Timestamp.fromMillis(start.getTime() - 60 * 60_000),
-    knockoutLockAt: Timestamp.fromMillis(firstKoMs - 60 * 60_000),
+    // Backstop only: each knockout match locks individually 1h before its own
+    // kickoff. This coarse server cutoff = the Final's lock time.
+    knockoutLockAt: Timestamp.fromMillis(knockoutSlotTimes("FINAL")!.lockMs),
     tournamentStartAt: tournamentStart,
     tournamentEndAt: tournamentEnd,
     phase: "PRE",
   });
 
   await batch.commit();
-  console.log(`Seeded ${count} group-stage fixtures and appConfig.`);
+  console.log(`Seeded ${count} group-stage + ${koCount} knockout fixtures and appConfig.`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

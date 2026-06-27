@@ -15,6 +15,7 @@ import type {
   Team,
   UserProfile,
 } from "../types";
+import { KO_SLOTS, knockoutSlotTimes, stageOfSlot } from "./bracket";
 
 export const DEMO_MODE =
   (import.meta as any).env?.VITE_DEMO_MODE === "true";
@@ -159,9 +160,11 @@ const FIXTURES: Fixture[] = (() => {
   return out;
 })();
 
-// R32 placeholder fixtures with bracketSlot R32-1..R32-16 mapped to top-2
-// finishers using a plausible pairing so the bracket UI has candidates.
-const R32_FIXTURES: Fixture[] = (() => {
+// Knockout fixtures for every bracket slot (R32 → FINAL). R32 gets demo
+// qualifiers so the bracket UI has candidates; deeper rounds stay TBD (filled
+// as results come in). Every match carries an official kickoff/lock time so it
+// shows its own lock countdown — each pick locks 1 hour before kickoff.
+const KO_FIXTURES: Fixture[] = (() => {
   // Use first two teams of each group as the "qualifiers" for demo purposes.
   const byGroup: Record<string, string[]> = {};
   for (const t of TEAMS) (byGroup[t.group!] ??= []).push(t.id);
@@ -170,27 +173,26 @@ const R32_FIXTURES: Fixture[] = (() => {
   const runners = groups.map((g) => byGroup[g][1]);
   // 24 qualifiers + 8 best 3rds (use 3rd team in each group for demo).
   const thirds = groups.slice(0, 8).map((g) => byGroup[g][2]);
-  const allKnockoutTeams = [...winners, ...runners, ...thirds];
+  const r32Teams = [...winners, ...runners, ...thirds];
 
-  const koStart = new Date("2026-06-29T20:00:00Z").getTime();
-  return Array.from({ length: 16 }, (_, i) => {
-    const home = allKnockoutTeams[i * 2] ?? null;
-    const away = allKnockoutTeams[i * 2 + 1] ?? null;
-    const kickoff = koStart + i * 3 * 3600_000;
+  return KO_SLOTS.map((slot) => {
+    const t = knockoutSlotTimes(slot)!;
+    const isR32 = slot.startsWith("R32-");
+    const n = isR32 ? parseInt(slot.split("-")[1], 10) : 0;
     return {
-      id: `R32-FX-${i + 1}`,
-      stage: "R32" as const,
-      bracketSlot: `R32-${i + 1}`,
-      homeTeamId: home,
-      awayTeamId: away,
-      kickoff: ts(new Date(kickoff)),
-      lockAt: ts(new Date(kickoff - 10 * 60_000)),
+      id: `KO-FX-${slot}`,
+      stage: stageOfSlot(slot),
+      bracketSlot: slot,
+      homeTeamId: isR32 ? r32Teams[(n - 1) * 2] ?? null : null,
+      awayTeamId: isR32 ? r32Teams[(n - 1) * 2 + 1] ?? null : null,
+      kickoff: ts(new Date(t.kickoffMs)),
+      lockAt: ts(new Date(t.lockMs)),
       status: "SCHEDULED" as const,
     };
   });
 })();
 
-const ALL_FIXTURES: Fixture[] = [...FIXTURES, ...R32_FIXTURES];
+const ALL_FIXTURES: Fixture[] = [...FIXTURES, ...KO_FIXTURES];
 
 // Demo: simulate several simultaneous LIVE matches so the user can preview
 // the live-now section without waiting for June 11. Each tuple is
@@ -215,7 +217,9 @@ const ALL_FIXTURES: Fixture[] = [...FIXTURES, ...R32_FIXTURES];
 
 const APP_CONFIG: AppConfig = {
   favoriteLockAt: ts(new Date("2026-06-11T19:00:00Z")),
-  knockoutLockAt: ts(new Date("2026-06-29T19:00:00Z")),
+  // Backstop only: each knockout match now locks individually 1h before its own
+  // kickoff (see KNOCKOUT_KICKOFFS). This coarse cutoff = the Final's lock time.
+  knockoutLockAt: ts(new Date(knockoutSlotTimes("FINAL")!.lockMs)),
   tournamentStartAt: ts(new Date("2026-06-11T20:00:00Z")),
   tournamentEndAt: ts(new Date("2026-07-19T22:00:00Z")),
   phase: "PRE",

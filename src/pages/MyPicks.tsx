@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { Timestamp } from "firebase/firestore";
 import clsx from "clsx";
 import { useAuth } from "../auth/AuthProvider";
 import {
@@ -17,8 +18,8 @@ import type { AppConfig, Fixture, GroupPrediction, KnockoutBracket, MatchResult,
 import MatchCard from "../components/MatchCard";
 import Countdown from "../components/Countdown";
 import MatchPicksModal from "../components/MatchPicksModal";
-import { favoriteLocked, knockoutLocked } from "../lib/locking";
-import { KO_SLOTS, SLOTS_BY_STAGE, stageLabel, feederSlots } from "../lib/bracket";
+import { favoriteLocked, fixtureLocked, formatKickoff, knockoutLocked } from "../lib/locking";
+import { KO_SLOTS, SLOTS_BY_STAGE, feederSlots } from "../lib/bracket";
 
 type Tab = "group" | "knockout" | "favorite";
 
@@ -277,11 +278,28 @@ function KnockoutTab({
   bracket: KnockoutBracket | null;
   onSave: (picks: KnockoutBracket["picks"], submit?: boolean) => Promise<void>;
 }) {
-  const locked = knockoutLocked(cfg);
+  // Backstop: once even the Final has locked the whole bracket is read-only.
+  // Individual matches lock 1h before their own kickoff via `slotLocked` below.
+  const fullyLocked = knockoutLocked(cfg);
+
+  // slot id -> fixture, so each match shows its own lock countdown and locks
+  // independently 1 hour before its kickoff.
+  const slotFixture = useMemo(() => {
+    const m: Record<string, Fixture> = {};
+    for (const f of fixtures) if (f.bracketSlot) m[f.bracketSlot] = f;
+    return m;
+  }, [fixtures]);
+  const slotLocked = (slot: string) => {
+    const fx = slotFixture[slot];
+    return fx ? fixtureLocked(fx) : false;
+  };
+
   const [picks, setPicks] = useState<KnockoutBracket["picks"]>(bracket?.picks ?? {});
   const [dirty, setDirty] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  // The match whose chooser + lock clock is shown in the right-hand side panel.
+  const [selectedSlot, setSelectedSlot] = useState<string | null>("R32-1");
 
   useEffect(() => {
     setPicks(bracket?.picks ?? {});
@@ -367,6 +385,40 @@ function KnockoutTab({
     SLOTS_BY_STAGE[stage as keyof typeof SLOTS_BY_STAGE].every((s) => picks[s]?.teamId)
   );
 
+  // One vertical column of matches for a single round. `justify-around` spaces
+  // the matches evenly so each deeper round visually centers between the two
+  // matches that feed it — the classic bracket tree. Used for both halves.
+  // Each box is a compact display; clicking it opens the side panel where you
+  // choose who advances and see the lock clock.
+  const renderColumn = (key: string, label: string, slots: string[]) => (
+    <div key={key} className="flex flex-col">
+      <div className="text-xs uppercase tracking-wide font-bold text-ink-500 mb-3 text-center">
+        {label}
+      </div>
+      <div className="flex-1 flex flex-col justify-around gap-3">
+        {slots.map((slot) => (
+          <SlotCard
+            key={slot}
+            slot={slot}
+            candidates={candidatesFor(slot)}
+            pick={{
+              teamId: picks[slot]?.teamId ?? null,
+              homeGoals: picks[slot]?.homeGoals ?? null,
+              awayGoals: picks[slot]?.awayGoals ?? null,
+            }}
+            locked={slotLocked(slot)}
+            lockAt={slotFixture[slot]?.lockAt ?? null}
+            kickoff={slotFixture[slot]?.kickoff ?? null}
+            selected={selectedSlot === slot}
+            showScore={slot === "FINAL"}
+            onSelect={() => setSelectedSlot(slot)}
+            onChange={(teamId, score) => setPick(slot, teamId, score)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       <div className="card-padded flex items-center justify-between gap-3 flex-wrap">
@@ -377,14 +429,8 @@ function KnockoutTab({
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {locked ? (
-            <span className="chip-red">Bracket locked</span>
-          ) : (
-            cfg?.knockoutLockAt && (
-              <Countdown to={cfg.knockoutLockAt as any} className="chip-yellow" />
-            )
-          )}
-          {!locked && (
+          {fullyLocked && <span className="chip-red">Bracket locked</span>}
+          {!fullyLocked && (
             <>
               <button
                 onClick={() => handleSave(false)}
@@ -407,45 +453,68 @@ function KnockoutTab({
         </div>
       </div>
 
-      {/* Bracket layout: horizontal columns per stage, scrollable */}
-      <div className="card overflow-x-auto">
-        <div className="min-w-[1100px] p-6 grid grid-cols-7 gap-6 items-stretch">
-          {(["R32","R16","QF","SF","FINAL"] as const).map((stage) => (
-            <div key={stage} className="flex flex-col gap-3">
-              <div className="text-xs uppercase tracking-wide font-bold text-ink-500">
-                {stageLabel(stage)}
-              </div>
-              {SLOTS_BY_STAGE[stage].map((slot) => (
-                <SlotPicker
-                  key={slot}
-                  slot={slot}
-                  locked={locked}
-                  candidates={candidatesFor(slot)}
-                  pickTeamId={picks[slot]?.teamId ?? null}
-                  pickScore={{ h: picks[slot]?.homeGoals ?? null, a: picks[slot]?.awayGoals ?? null }}
-                  showScore={slot === "FINAL"}
-                  onChange={(teamId, score) => setPick(slot, teamId, score)}
+      {/* Bracket layout: the two halves of the draw face inward, with the Final
+          (and Third-place match) in the centre — the classic World Cup bracket.
+          Click a match to reveal its lock clock and pick who advances inline. */}
+      <div className="card">
+        <div className="p-3 grid grid-cols-9 gap-1 items-stretch">
+          {/* Left half: R32 → SF, flowing inward toward the Final */}
+          {renderColumn("L-R32", "R32", SLOTS_BY_STAGE.R32.slice(0, 8))}
+          {renderColumn("L-R16", "R16", SLOTS_BY_STAGE.R16.slice(0, 4))}
+          {renderColumn("L-QF", "QF", SLOTS_BY_STAGE.QF.slice(0, 2))}
+          {renderColumn("L-SF", "SF", SLOTS_BY_STAGE.SF.slice(0, 1))}
+
+          {/* Centre: Final on top, Third-place match below */}
+          <div className="flex flex-col">
+            <div className="text-xs uppercase tracking-wide font-bold text-ink-500 mb-3 text-center">
+              Final
+            </div>
+            <div className="flex-1 flex flex-col justify-center gap-8">
+              <SlotCard
+                slot="FINAL"
+                candidates={candidatesFor("FINAL")}
+                pick={{
+                  teamId: picks["FINAL"]?.teamId ?? null,
+                  homeGoals: picks["FINAL"]?.homeGoals ?? null,
+                  awayGoals: picks["FINAL"]?.awayGoals ?? null,
+                }}
+                locked={slotLocked("FINAL")}
+                lockAt={slotFixture["FINAL"]?.lockAt ?? null}
+                kickoff={slotFixture["FINAL"]?.kickoff ?? null}
+                selected={selectedSlot === "FINAL"}
+                showScore={true}
+                onSelect={() => setSelectedSlot("FINAL")}
+                onChange={(teamId, score) => setPick("FINAL", teamId, score)}
+              />
+              <div>
+                <div className="text-[10px] uppercase tracking-wide font-bold text-ink-400 mb-2 text-center">
+                  Third Place
+                </div>
+                <SlotCard
+                  slot="THIRD"
+                  candidates={candidatesFor("THIRD")}
+                  pick={{
+                    teamId: picks["THIRD"]?.teamId ?? null,
+                    homeGoals: null,
+                    awayGoals: null,
+                  }}
+                  locked={slotLocked("THIRD")}
+                  lockAt={slotFixture["THIRD"]?.lockAt ?? null}
+                  kickoff={slotFixture["THIRD"]?.kickoff ?? null}
+                  selected={selectedSlot === "THIRD"}
+                  showScore={false}
+                  onSelect={() => setSelectedSlot("THIRD")}
+                  onChange={(teamId) => setPick("THIRD", teamId)}
                 />
-              ))}
+              </div>
             </div>
-          ))}
-          {/* THIRD place column at the right */}
-          <div className="flex flex-col gap-3">
-            <div className="text-xs uppercase tracking-wide font-bold text-ink-500">
-              Third Place
-            </div>
-            <SlotPicker
-              slot="THIRD"
-              locked={locked}
-              candidates={candidatesFor("THIRD")}
-              pickTeamId={picks["THIRD"]?.teamId ?? null}
-              pickScore={{ h: null, a: null }}
-              showScore={false}
-              onChange={(teamId) => setPick("THIRD", teamId)}
-            />
           </div>
-          {/* Empty column to right-align */}
-          <div />
+
+          {/* Right half: SF → R32, mirrored so it flows inward toward the Final */}
+          {renderColumn("R-SF", "SF", SLOTS_BY_STAGE.SF.slice(1))}
+          {renderColumn("R-QF", "QF", SLOTS_BY_STAGE.QF.slice(2))}
+          {renderColumn("R-R16", "R16", SLOTS_BY_STAGE.R16.slice(4))}
+          {renderColumn("R-R32", "R32", SLOTS_BY_STAGE.R32.slice(8))}
         </div>
       </div>
 
@@ -461,65 +530,100 @@ function KnockoutTab({
   );
 }
 
-function SlotPicker({
+// A match box in the bracket. Compact by default (matchup + picked team
+// highlighted). Clicking it selects the match, revealing the lock clock and
+// kickoff time; the two teams are always clickable to choose who advances, and
+// the Final reveals a score tiebreaker when selected.
+function SlotCard({
   slot,
-  locked,
   candidates,
-  pickTeamId,
-  pickScore,
+  pick,
+  locked,
+  lockAt,
+  kickoff,
+  selected,
   showScore,
+  onSelect,
   onChange,
 }: {
   slot: string;
-  locked: boolean;
   candidates: (Team | undefined)[];
-  pickTeamId: string | null;
-  pickScore: { h: number | null; a: number | null };
+  pick: { teamId: string | null; homeGoals: number | null; awayGoals: number | null };
+  locked: boolean;
+  lockAt: Timestamp | null;
+  kickoff: Timestamp | null;
+  selected: boolean;
   showScore: boolean;
+  onSelect: () => void;
   onChange: (teamId: string | null, score?: { h?: number | null; a?: number | null }) => void;
 }) {
   return (
-    <div className="rounded-xl border border-ink-200 p-3 bg-white">
-      <div className="text-[10px] font-bold text-ink-400 uppercase mb-2">{slot}</div>
-      <div className="space-y-1.5">
+    <div
+      onClick={onSelect}
+      className={clsx(
+        "rounded-lg border p-1.5 bg-white cursor-pointer transition",
+        selected ? "border-brand-500 ring-2 ring-brand-500/40" : "border-ink-200 hover:border-ink-300"
+      )}
+    >
+      <div className="flex items-center justify-between gap-1">
+        <span className="text-[9px] font-bold text-ink-400 uppercase">{slot}</span>
+        {locked && <span className="text-[9px] font-bold uppercase text-red-600">Locked</span>}
+      </div>
+
+      {/* Lock clock + kickoff, revealed when this match is selected. */}
+      {selected && !locked && lockAt && (
+        <div className="text-[9px] font-semibold text-amber-600 leading-tight mt-0.5">
+          <Countdown to={lockAt as any} prefix="🔒" lockedLabel="Locked" />
+        </div>
+      )}
+      {selected && kickoff && (
+        <div className="text-[9px] text-ink-400 leading-tight">
+          {formatKickoff(kickoff as any)}
+        </div>
+      )}
+
+      <div className="mt-1 space-y-0.5">
         {candidates.map((team, i) => {
-          const id = team?.id ?? `__empty_${i}`;
-          const isActive = team && pickTeamId === team.id;
+          const isPick = team && pick.teamId === team.id;
           return (
             <button
-              key={id}
+              key={team?.id ?? `__empty_${i}`}
               type="button"
               disabled={locked || !team}
-              onClick={() => team && onChange(team.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelect();
+                if (team) onChange(team.id);
+              }}
               className={clsx(
-                "w-full text-left px-2 py-1.5 rounded-lg text-sm transition border",
-                isActive ? "bg-brand-500 text-ink-950 border-brand-500"
-                         : team ? "border-ink-200 hover:bg-ink-50"
-                                : "border-dashed border-ink-200 text-ink-400 italic"
+                "w-full flex items-center gap-1.5 px-1 py-0.5 rounded text-xs min-w-0 border transition",
+                isPick
+                  ? "bg-brand-500 text-ink-950 font-semibold border-brand-500"
+                  : team
+                    ? "border-transparent hover:bg-ink-50"
+                    : "border-transparent text-ink-400 italic"
               )}
             >
-              {team ? (
-                <span className="flex items-center gap-2">
-                  <span>{team.flag}</span>
-                  <span className="font-semibold">{team.name}</span>
-                </span>
-              ) : "TBD — fill earlier round"}
+              <span className="shrink-0">{team?.flag ?? "·"}</span>
+              <span className="truncate">{team?.name ?? "TBD"}</span>
             </button>
           );
         })}
       </div>
-      {showScore && (
-        <div className="mt-3">
-          <div className="text-[10px] font-bold text-ink-400 uppercase">Final score (tiebreaker)</div>
-          <div className="flex items-center gap-1 mt-1">
+
+      {/* Final-only score tiebreaker, revealed when selected. */}
+      {selected && showScore && (
+        <div className="mt-1.5" onClick={(e) => e.stopPropagation()}>
+          <div className="text-[8px] font-bold text-ink-400 uppercase">Score (tiebreak)</div>
+          <div className="flex items-center gap-1 mt-0.5">
             <input
               disabled={locked}
               inputMode="numeric"
-              className="field-input w-12 text-center"
-              value={pickScore.h ?? ""}
+              className="field-input w-8 text-center px-1"
+              value={pick.homeGoals ?? ""}
               onChange={(e) => {
                 const v = e.target.value.replace(/[^0-9]/g, "");
-                onChange(pickTeamId, { h: v === "" ? null : parseInt(v, 10) });
+                onChange(pick.teamId, { h: v === "" ? null : parseInt(v, 10) });
               }}
               placeholder="–"
             />
@@ -527,11 +631,11 @@ function SlotPicker({
             <input
               disabled={locked}
               inputMode="numeric"
-              className="field-input w-12 text-center"
-              value={pickScore.a ?? ""}
+              className="field-input w-8 text-center px-1"
+              value={pick.awayGoals ?? ""}
               onChange={(e) => {
                 const v = e.target.value.replace(/[^0-9]/g, "");
-                onChange(pickTeamId, { a: v === "" ? null : parseInt(v, 10) });
+                onChange(pick.teamId, { a: v === "" ? null : parseInt(v, 10) });
               }}
               placeholder="–"
             />
