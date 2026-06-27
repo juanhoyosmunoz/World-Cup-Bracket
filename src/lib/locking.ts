@@ -36,6 +36,35 @@ export function knockoutLocked(cfg: AppConfig | null, now: Date = new Date()): b
   return t ? now.getTime() >= t.getTime() : false;
 }
 
+// Per-round knockout lock: each slot locks LOCK_LEAD_MINUTES (1 hour) before its
+// match kicks off. The slot is matched to a fixture by bracketSlot. If no fixture
+// exists yet for that slot (e.g. deeper rounds not scheduled), we fall back to the
+// shared appConfig.knockoutLockAt deadline.
+export function knockoutSlotLockAt(
+  slot: string,
+  fixtures: Fixture[],
+  cfg: AppConfig | null
+): Date | null {
+  const fx = fixtures.find((f) => f.bracketSlot === slot);
+  if (fx) {
+    const k = toDate(fx.kickoff);
+    if (k) return new Date(k.getTime() - LOCK_LEAD_MINUTES * 60_000);
+  }
+  return toDate(cfg?.knockoutLockAt);
+}
+
+export function knockoutSlotLocked(
+  slot: string,
+  fixtures: Fixture[],
+  cfg: AppConfig | null,
+  now: Date = new Date()
+): boolean {
+  const fx = fixtures.find((f) => f.bracketSlot === slot);
+  if (fx && fx.status !== "SCHEDULED") return true;
+  const lock = knockoutSlotLockAt(slot, fixtures, cfg);
+  return lock ? now.getTime() >= lock.getTime() : false;
+}
+
 export function favoriteLocked(cfg: AppConfig | null, now: Date = new Date()): boolean {
   if (!cfg) return false;
   const t = toDate(cfg.favoriteLockAt);
